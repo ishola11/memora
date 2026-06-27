@@ -211,8 +211,7 @@ pub fn get_item(
 pub fn show_quick_paste(app: AppHandle) -> Result<(), String> {
     if let Some(window) = app.get_webview_window("quick-paste") {
         crate::position_quick_paste(&window);
-        crate::macos_popover::show_quick_paste_window(&window);
-        window.set_focus().map_err(|e| e.to_string())?;
+        crate::macos_quick_paste::show_quick_paste_window(&window, &app);
         app.emit("quick-paste-visibility", true)
             .map_err(|e| e.to_string())?;
     }
@@ -221,11 +220,14 @@ pub fn show_quick_paste(app: AppHandle) -> Result<(), String> {
 
 #[tauri::command]
 pub fn hide_quick_paste(app: AppHandle) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    crate::macos_quick_paste::hide_quick_paste_panel(&app);
+    #[cfg(not(target_os = "macos"))]
     if let Some(window) = app.get_webview_window("quick-paste") {
         window.hide().map_err(|e| e.to_string())?;
-        app.emit("quick-paste-visibility", false)
-            .map_err(|e| e.to_string())?;
     }
+    app.emit("quick-paste-visibility", false)
+        .map_err(|e| e.to_string())?;
     Ok(())
 }
 
@@ -246,6 +248,11 @@ pub async fn auth_login(
 #[tauri::command]
 pub fn auth_logout(state: State<'_, AppState>) -> Result<crate::sync::SyncStateDto, String> {
     state.sync_engine.logout()
+}
+
+#[tauri::command]
+pub async fn force_sync_now(state: State<'_, AppState>) -> Result<crate::sync::SyncStateDto, String> {
+    state.sync_engine.force_sync_now().await
 }
 
 #[tauri::command]

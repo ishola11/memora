@@ -97,7 +97,7 @@ export default function App() {
 
   if (windowMode === "quick-paste") {
     return (
-      <TrayShell>
+      <TrayShell className="h-full overflow-hidden">
         <QuickPasteLauncher />
         <ActionToast />
         <SyncToast />

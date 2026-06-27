@@ -106,6 +106,30 @@ impl SyncEngine {
         self.get_state()
     }
 
+    /// Pull from cloud, push pending changes, and refresh local state.
+    pub async fn force_sync_now(&self) -> Result<SyncStateDto, String> {
+        let client = self.client.as_ref().ok_or("Supabase not configured")?;
+        let Some(mut session) = auth::load_session(&self.db).map_err(|e| e.to_string())? else {
+            return Err("Sign in to sync".to_string());
+        };
+
+        if auth::session_expired(&session) {
+            session = client.refresh(&session).await.map_err(|e| e.to_string())?;
+            let email = self
+                .db
+                .get_setting("user_email")
+                .map_err(|e| e.to_string())?
+                .unwrap_or_default();
+            auth::save_session(&self.db, &session, &email).map_err(|e| e.to_string())?;
+        }
+
+        self.bootstrap_after_auth(&session).await?;
+        self.sync_tick()
+            .await
+            .map_err(|e| format!("Sync failed: {e}"))?;
+        self.get_state()
+    }
+
     pub fn start(self: Arc<Self>) {
         let engine = self.clone();
         std::thread::spawn(move || {
@@ -351,17 +375,18 @@ impl SyncEngine {
             }
         }
 
-        let mut last = self.last_presence.lock();
-        let should_ping = last
-            .map(|t| t.elapsed() > Duration::from_secs(30))
-            .unwrap_or(true);
+        let should_ping = {
+            let last = self.last_presence.lock();
+            last.map(|t| t.elapsed() > Duration::from_secs(30))
+                .unwrap_or(true)
+        };
         if should_ping {
             if let Ok(device_id) = self.db.get_setting("local_device_id") {
                 if let Some(id) = device_id {
                     let _ = client.update_device_presence(&session, &id).await;
                 }
             }
-            *last = Some(Instant::now());
+            *self.last_presence.lock() = Some(Instant::now());
         }
 
         Ok(())

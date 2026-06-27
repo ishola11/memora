@@ -122,14 +122,6 @@ pub fn toggle_tray_nspopover(app: &AppHandle) {
     }
 }
 
-/// Quick Paste stays a Tauri overlay window (not NSPopover).
-#[cfg(target_os = "macos")]
-pub fn show_quick_paste_window(window: &WebviewWindow) {
-    let _ = window.set_always_on_top(true);
-    let _ = window.set_visible_on_all_workspaces(true);
-    let _ = window.show();
-}
-
 #[cfg(not(target_os = "macos"))]
 pub fn ensure_accessory_policy(_app: &tauri::AppHandle) {}
 
@@ -141,10 +133,3 @@ pub fn activate_settings_policy(_app: &tauri::AppHandle) {}
 
 #[cfg(not(target_os = "macos"))]
 pub fn restore_menubar_app_policy(_app: &tauri::AppHandle) {}
-
-#[cfg(not(target_os = "macos"))]
-pub fn show_quick_paste_window(window: &tauri::WebviewWindow) {
-    let _ = window.set_always_on_top(true);
-    let _ = window.show();
-    let _ = window.set_focus();
-}

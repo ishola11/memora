@@ -141,6 +141,10 @@ export async function authLogout(): Promise<SyncState> {
   return invoke<SyncState>("auth_logout");
 }
 
+export async function forceSyncNow(): Promise<SyncState> {
+  return invoke<SyncState>("force_sync_now");
+}
+
 export async function openSettings(): Promise<void> {
   return invoke("open_settings");
 }

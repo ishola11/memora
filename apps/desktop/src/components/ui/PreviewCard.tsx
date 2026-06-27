@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from "react";
 import {
-  Check,
   Clipboard,
   ClipboardCopy,
   Code2,
@@ -15,6 +14,7 @@ import {
   Zap,
 } from "lucide-react";
 import type { Collection, PreviewCard as PreviewCardType } from "@memora/shared-types";
+import { CollectionPickerMenu } from "@/components/ui/CollectionPickerMenu";
 import { getItemCollections } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
@@ -60,7 +60,6 @@ function ActionButton({
   danger,
   disabled,
   busy,
-  toolbar,
 }: {
   label: string;
   onClick: () => void;
@@ -69,7 +68,6 @@ function ActionButton({
   danger?: boolean;
   disabled?: boolean;
   busy?: boolean;
-  toolbar?: boolean;
 }) {
   return (
     <button
@@ -82,10 +80,7 @@ function ActionButton({
         onClick();
       }}
       className={cn(
-        "text-muted transition-colors hover:bg-surface-elevated disabled:cursor-not-allowed disabled:opacity-50",
-        toolbar
-          ? "flex min-w-0 flex-1 items-center justify-center py-2"
-          : "rounded p-0.5",
+        "flex min-w-0 flex-1 items-center justify-center py-2.5 text-muted transition-colors hover:bg-surface-elevated disabled:cursor-not-allowed disabled:opacity-50",
         danger
           ? "hover:text-red-500"
           : "hover:text-zinc-700 dark:hover:text-zinc-200",
@@ -128,7 +123,7 @@ export function PreviewCard({
     itemCollectionIdsProp ?? [],
   );
   const [flashCollectionId, setFlashCollectionId] = useState<string | null>(null);
-  const menuRef = useRef<HTMLDivElement>(null);
+  const collectionAnchorRef = useRef<HTMLButtonElement>(null);
   const flashTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
   useEffect(() => {
@@ -143,17 +138,6 @@ export function PreviewCard({
   }, [menuOpen, card.id]);
 
   useEffect(() => {
-    if (!menuOpen) return;
-    const close = (e: MouseEvent) => {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
-        setMenuOpen(false);
-      }
-    };
-    document.addEventListener("mousedown", close);
-    return () => document.removeEventListener("mousedown", close);
-  }, [menuOpen]);
-
-  useEffect(() => {
     return () => {
       if (flashTimerRef.current) clearTimeout(flashTimerRef.current);
     };
@@ -164,6 +148,8 @@ export function PreviewCard({
     onCopy || onCopyPlain || onPin || onFavorite || onDelete || showCollections,
   );
   const isBusy = busyAction !== null;
+  const busyCollectionId =
+    busyAction?.startsWith("collection:") ? busyAction.slice("collection:".length) : null;
 
   const handleCollectionToggle = async (collectionId: string, inCollection: boolean) => {
     const actionKey: BusyAction = `collection:${collectionId}`;
@@ -241,13 +227,12 @@ export function PreviewCard({
             "mt-2.5 w-full transition-opacity duration-150",
             compact
               ? "opacity-0 group-hover:opacity-100 group-focus-within:opacity-100"
-              : "opacity-70 group-hover:opacity-100",
+              : "opacity-80 group-hover:opacity-100",
           )}
         >
-          <div className="flex w-full divide-x divide-border/40 overflow-hidden rounded-lg border border-border/40 bg-surface/70">
+          <div className="flex w-full divide-x divide-border/35 overflow-hidden rounded-lg border border-border/35 bg-surface/80">
             {onCopy && (
               <ActionButton
-                toolbar
                 label="Copy"
                 disabled={isBusy}
                 busy={busyAction === "copy"}
@@ -258,7 +243,6 @@ export function PreviewCard({
             )}
             {onCopyPlain && (
               <ActionButton
-                toolbar
                 label="Copy as plain text"
                 disabled={isBusy}
                 busy={busyAction === "copyPlain"}
@@ -269,7 +253,6 @@ export function PreviewCard({
             )}
             {onPin && (
               <ActionButton
-                toolbar
                 label={card.isPinned ? "Unpin" : "Pin"}
                 disabled={isBusy}
                 busy={busyAction === "pin"}
@@ -280,7 +263,6 @@ export function PreviewCard({
             )}
             {onFavorite && (
               <ActionButton
-                toolbar
                 label={card.isFavorited ? "Unfavorite" : "Favorite"}
                 disabled={isBusy}
                 busy={busyAction === "favorite"}
@@ -295,57 +277,27 @@ export function PreviewCard({
               </ActionButton>
             )}
             {showCollections && (
-              <div className="relative min-w-0 flex-1" ref={menuRef}>
-                <ActionButton
-                  toolbar
-                  label="Add to collection"
-                  disabled={isBusy}
-                  busy={busyAction?.startsWith("collection:") ?? false}
-                  onClick={() => setMenuOpen((v) => !v)}
-                  className="w-full"
-                >
+              <button
+                ref={collectionAnchorRef}
+                type="button"
+                title="Add to collection"
+                aria-label="Add to collection"
+                disabled={isBusy}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setMenuOpen((v) => !v);
+                }}
+                className="flex min-w-0 flex-1 items-center justify-center py-2.5 text-muted transition-colors hover:bg-surface-elevated hover:text-zinc-700 disabled:cursor-not-allowed disabled:opacity-50 dark:hover:text-zinc-200"
+              >
+                {busyCollectionId ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
                   <FolderPlus className="h-3.5 w-3.5" />
-                </ActionButton>
-                {menuOpen && (
-                  <div className="absolute bottom-[calc(100%+4px)] left-1/2 z-50 min-w-[168px] -translate-x-1/2 rounded-lg border border-border/60 bg-surface py-1 shadow-lg">
-                    {collections.map((c) => {
-                      const inCollection = itemCollectionIds.includes(c.id);
-                      const isFlashing = flashCollectionId === c.id;
-                      const rowBusy = busyAction === `collection:${c.id}`;
-                      return (
-                        <button
-                          key={c.id}
-                          type="button"
-                          disabled={isBusy}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            void handleCollectionToggle(c.id, inCollection);
-                          }}
-                          className={cn(
-                            "flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs hover:bg-surface-elevated disabled:opacity-50",
-                            isFlashing && "bg-accent/10",
-                          )}
-                        >
-                          <span
-                            className="h-2 w-2 shrink-0 rounded-full"
-                            style={{ backgroundColor: c.color }}
-                          />
-                          <span className="flex-1 truncate">{c.name}</span>
-                          {rowBusy ? (
-                            <Loader2 className="h-3 w-3 animate-spin text-muted" />
-                          ) : (inCollection || isFlashing) ? (
-                            <Check className="h-3 w-3 text-accent" />
-                          ) : null}
-                        </button>
-                      );
-                    })}
-                  </div>
                 )}
-              </div>
+              </button>
             )}
             {onDelete && (
               <ActionButton
-                toolbar
                 label="Delete"
                 danger
                 disabled={isBusy}
@@ -357,6 +309,20 @@ export function PreviewCard({
             )}
           </div>
         </div>
+      )}
+
+      {showCollections && (
+        <CollectionPickerMenu
+          open={menuOpen}
+          anchorRef={collectionAnchorRef}
+          collections={collections}
+          itemCollectionIds={itemCollectionIds}
+          flashCollectionId={flashCollectionId}
+          busyCollectionId={busyCollectionId}
+          disabled={isBusy}
+          onToggle={(id, inCol) => void handleCollectionToggle(id, inCol)}
+          onClose={() => setMenuOpen(false)}
+        />
       )}
     </div>
   );

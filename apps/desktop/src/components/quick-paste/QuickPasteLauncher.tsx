@@ -10,13 +10,15 @@ import {
   toggleFavorite,
   togglePin,
 } from "@/lib/api";
-import { TIMELINE_LABELS } from "@/lib/utils";
+import { TIMELINE_LABELS, cn } from "@/lib/utils";
 import { useActionToastStore } from "@/stores/action-toast-store";
 import { useAppStore } from "@/stores/app-store";
 import type { AppTab, PreviewCard as PreviewCardType } from "@memora/shared-types";
 
 export function QuickPasteLauncher() {
   const inputRef = useRef<HTMLInputElement>(null);
+  const isQuickPasteWindow =
+    new URLSearchParams(window.location.search).get("window") === "quick-paste";
   const {
     quickPasteOpen,
     query,
@@ -81,7 +83,7 @@ export function QuickPasteLauncher() {
     }
   };
 
-  if (!quickPasteOpen) return null;
+  if (!quickPasteOpen && !isQuickPasteWindow) return null;
 
   const cardActions = (card: PreviewCardType) => ({
     onCopy: async () => {
@@ -124,83 +126,93 @@ export function QuickPasteLauncher() {
     },
   });
 
+  const shellClass = isQuickPasteWindow
+    ? "flex h-full w-full flex-col bg-black/40 backdrop-blur-[4px] dark:bg-black/55"
+    : "fixed inset-0 z-50 flex flex-col bg-black/35 backdrop-blur-[3px] dark:bg-black/50";
+
   return (
     <div
-      className="fixed inset-0 z-50 flex items-start justify-center bg-black/30 pt-[10vh] backdrop-blur-[2px] dark:bg-black/50"
+      className={shellClass}
       onMouseDown={() => setQuickPasteOpen(false)}
     >
-      <div
-        className="flex w-[640px] max-w-[calc(100vw-2rem)] flex-col overflow-hidden rounded-xl border border-border/60 bg-surface shadow-[var(--panel-shadow)]"
-        style={{ maxHeight: "min(520px, 80vh)" }}
-        onMouseDown={(e) => e.stopPropagation()}
-        onKeyDown={handleKeyDown}
-      >
-        <header className="panel-header px-4 pb-0 pt-3">
-          <div className="search-input mb-3">
-            <Search className="h-4 w-4 shrink-0 text-muted" />
-            <input
-              ref={inputRef}
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder="Search your memory…  device:mac  type:image  is:pinned"
-            />
-          </div>
-          <TabBar activeTab={activeTab} onTabChange={setActiveTab} compact />
-        </header>
-
-        <div className="panel-content min-h-0 p-2">
-          {query.trim() ? (
-            flatItems.length === 0 ? (
-              <p className="px-3 py-12 text-center text-sm text-muted">No matches found</p>
-            ) : (
-              <div className="space-y-1">
-                {flatItems.map((card, index) => (
-                  <PreviewCard
-                    key={card.id}
-                    card={card}
-                    selected={index === selectedIndex}
-                    onSelect={() => setSelectedIndex(index)}
-                    {...cardActions(card)}
-                  />
-                ))}
-              </div>
-            )
-          ) : (
-            timeline.map((section) =>
-              section.items.length > 0 ? (
-                <div key={section.bucket} className="mb-3">
-                  {activeTab === "history" && (
-                    <p className="sticky top-0 z-10 bg-surface/95 px-2 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted backdrop-blur-sm">
-                      {TIMELINE_LABELS[section.bucket] ?? section.label}
-                    </p>
-                  )}
-                  <div className="space-y-1">
-                    {section.items.map((card, index) => {
-                      const globalIndex =
-                        timeline
-                          .slice(0, timeline.indexOf(section))
-                          .reduce((acc, s) => acc + s.items.length, 0) + index;
-                      return (
-                        <PreviewCard
-                          key={card.id}
-                          card={card}
-                          selected={globalIndex === selectedIndex}
-                          onSelect={() => setSelectedIndex(globalIndex)}
-                          {...cardActions(card)}
-                        />
-                      );
-                    })}
-                  </div>
-                </div>
-              ) : null,
-            )
+      <div className="flex flex-1 items-start justify-center px-5 pt-[9vh] pb-6">
+        <div
+          className={cn(
+            "flex w-full max-w-[660px] flex-col overflow-hidden rounded-2xl",
+            "border border-white/10 bg-surface shadow-[0_28px_80px_-16px_rgba(0,0,0,0.55)]",
+            "ring-1 ring-black/5 dark:ring-white/5",
           )}
-        </div>
+          style={{ maxHeight: "min(540px, 78vh)" }}
+          onMouseDown={(e) => e.stopPropagation()}
+          onKeyDown={handleKeyDown}
+        >
+          <header className="panel-header px-4 pb-0 pt-3.5">
+            <div className="search-input mb-3">
+              <Search className="h-4 w-4 shrink-0 text-muted" />
+              <input
+                ref={inputRef}
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="Search your memory…  device:mac  type:image  is:pinned"
+              />
+            </div>
+            <TabBar activeTab={activeTab} onTabChange={setActiveTab} compact />
+          </header>
 
-        <footer className="panel-footer flex items-center justify-between text-[11px] text-muted">
-          <span>↵ paste · ⇥ switch tab · esc close</span>
-          <span>{flatItems.length} items</span>
-        </footer>
+          <div className="panel-content min-h-0 p-2.5">
+            {query.trim() ? (
+              flatItems.length === 0 ? (
+                <p className="px-3 py-12 text-center text-sm text-muted">No matches found</p>
+              ) : (
+                <div className="space-y-1.5">
+                  {flatItems.map((card, index) => (
+                    <PreviewCard
+                      key={card.id}
+                      card={card}
+                      selected={index === selectedIndex}
+                      onSelect={() => setSelectedIndex(index)}
+                      {...cardActions(card)}
+                    />
+                  ))}
+                </div>
+              )
+            ) : (
+              timeline.map((section) =>
+                section.items.length > 0 ? (
+                  <div key={section.bucket} className="mb-3">
+                    {activeTab === "history" && (
+                      <p className="sticky top-0 z-10 bg-surface/95 px-2 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted backdrop-blur-sm">
+                        {TIMELINE_LABELS[section.bucket] ?? section.label}
+                      </p>
+                    )}
+                    <div className="space-y-1.5">
+                      {section.items.map((card, index) => {
+                        const globalIndex =
+                          timeline
+                            .slice(0, timeline.indexOf(section))
+                            .reduce((acc, s) => acc + s.items.length, 0) + index;
+                        return (
+                          <PreviewCard
+                            key={card.id}
+                            card={card}
+                            selected={globalIndex === selectedIndex}
+                            onSelect={() => setSelectedIndex(globalIndex)}
+                            {...cardActions(card)}
+                          />
+                        );
+                      })}
+                    </div>
+                  </div>
+                ) : null,
+              )
+            )}
+          </div>
+
+          <footer className="panel-footer flex items-center justify-between text-[11px] text-muted">
+            <span>↵ paste · ⇥ switch tab · esc close</span>
+            <span>{flatItems.length} items</span>
+          </footer>
+        </div>
       </div>
     </div>
   );

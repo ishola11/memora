@@ -41,6 +41,7 @@ urlencoding = "2"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 tauri-plugin-nspopover = { git = "https://github.com/freethinkel/tauri-nspopover-plugin.git", version = "4.1.0" }
+tauri-nspanel = { git = "https://github.com/ahkohd/tauri-nspanel", branch = "v2.1" }
 
 [target.'cfg(windows)'.dependencies]
 windows = { version = "0.58", features = [

@@ -6,6 +6,7 @@ import {
   Monitor,
   Moon,
   Palette,
+  RefreshCw,
   Sun,
   Trash2,
   FolderOpen,
@@ -13,6 +14,7 @@ import {
 import {
   authLogin,
   authLogout,
+  forceSyncNow,
   getAppSettings,
   getCollections,
   getDevices,
@@ -64,7 +66,9 @@ export function SettingsPanel() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
+  const [syncing, setSyncing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [syncMessage, setSyncMessage] = useState<string | null>(null);
 
   const refresh = async () => {
     const [sync, devs, settings, cols] = await Promise.all([
@@ -137,6 +141,22 @@ export function SettingsPanel() {
       setError(String(err));
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleForceSync = async () => {
+    setSyncing(true);
+    setError(null);
+    setSyncMessage(null);
+    try {
+      const sync = await forceSyncNow();
+      setState(sync);
+      setSyncMessage("Sync completed successfully.");
+      await refresh();
+    } catch (err) {
+      setError(String(err));
+    } finally {
+      setSyncing(false);
     }
   };
 
@@ -216,6 +236,22 @@ export function SettingsPanel() {
                       )}
                     </div>
                   </div>
+                  <button
+                    type="button"
+                    onClick={() => void handleForceSync()}
+                    disabled={syncing || loading}
+                    className="flex w-full items-center justify-center gap-2 rounded-xl border border-border/60 bg-surface-elevated/50 py-2.5 text-sm font-medium transition-colors hover:bg-surface-elevated disabled:opacity-50"
+                  >
+                    {syncing ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <RefreshCw className="h-4 w-4" />
+                    )}
+                    {syncing ? "Syncing…" : "Sync now"}
+                  </button>
+                  {syncMessage && (
+                    <p className="text-center text-xs text-green-600 dark:text-green-400">{syncMessage}</p>
+                  )}
                   <button
                     type="button"
                     onClick={() => void handleLogout()}

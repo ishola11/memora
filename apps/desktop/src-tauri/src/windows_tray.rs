@@ -5,8 +5,6 @@ use std::time::{Duration, Instant};
 use parking_lot::Mutex;
 use tauri::{Emitter, Manager, Monitor, PhysicalPosition, Position, Size, WebviewWindow};
 
-use crate::macos_popover;
-
 static TRAY_OPENED_AT: Mutex<Option<Instant>> = Mutex::new(None);
 const TRAY_BLUR_GRACE: Duration = Duration::from_millis(450);
 
@@ -39,7 +37,9 @@ pub fn toggle_tray_window(
             } else {
                 position_tray_panel_fallback(&window);
             }
-            macos_popover::show_quick_paste_window(&window);
+            let _ = window.set_always_on_top(true);
+            let _ = window.show();
+            let _ = window.set_focus();
             *TRAY_OPENED_AT.lock() = Some(Instant::now());
             let _ = app.emit("tray-visibility", true);
         } else {

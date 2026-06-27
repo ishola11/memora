@@ -4,6 +4,7 @@ pub mod clipboard;
 pub mod commands;
 pub mod db;
 pub mod macos_popover;
+pub mod macos_quick_paste;
 pub mod search;
 pub mod sync;
 pub mod timeline;
@@ -18,7 +19,7 @@ use parking_lot::Mutex;
 use tauri::{
     menu::{Menu, MenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconEvent},
-    Emitter, Manager, Monitor, PhysicalPosition, RunEvent, WebviewWindow, WindowEvent,
+    Emitter, Manager, Monitor, PhysicalPosition, PhysicalSize, RunEvent, WebviewWindow, WindowEvent,
 };
 #[cfg(not(target_os = "macos"))]
 use tauri::tray::TrayIconBuilder;
@@ -53,7 +54,9 @@ pub fn run() {
 
     #[cfg(target_os = "macos")]
     {
-        builder = builder.plugin(tauri_plugin_nspopover::init());
+        builder = builder
+            .plugin(tauri_plugin_nspopover::init())
+            .plugin(tauri_nspanel::init());
     }
 
     builder
@@ -128,6 +131,7 @@ pub fn run() {
                 });
 
                 macos_popover::setup_tray_nspopover(app.handle());
+                macos_quick_paste::setup_quick_paste_panel(app.handle());
             }
 
             #[cfg(not(target_os = "macos"))]
@@ -209,13 +213,17 @@ pub fn run() {
             commands::get_theme_preference,
             commands::set_theme_preference,
             commands::open_settings,
+            commands::force_sync_now,
         ])
         .build(tauri::generate_context!())
         .expect("error building tauri app")
         .run(|app, event| {
             if matches!(event, RunEvent::Ready) {
                 #[cfg(target_os = "macos")]
-                macos_popover::retry_setup_tray_nspopover(app);
+                {
+                    macos_popover::retry_setup_tray_nspopover(app);
+                    macos_quick_paste::retry_setup_quick_paste_panel(app);
+                }
             }
             if let RunEvent::ExitRequested { api, .. } = &event {
                 api.prevent_exit();
@@ -277,22 +285,22 @@ fn toggle_quick_paste(app: &tauri::AppHandle, show: bool) {
             macos_popover::hide_tray_nspopover(app);
 
             position_quick_paste(&window);
-            macos_popover::show_quick_paste_window(&window);
-            let _ = window.set_focus();
+            macos_quick_paste::show_quick_paste_window(&window, app);
             let _ = app.emit("quick-paste-visibility", true);
         } else {
-            let _ = window.hide();
+            #[cfg(target_os = "macos")]
+            macos_quick_paste::hide_quick_paste_panel(app);
+            #[cfg(not(target_os = "macos"))]
+            {
+                let _ = window.hide();
+            }
             let _ = app.emit("quick-paste-visibility", false);
         }
     }
 }
 
-/// Center quick-paste on the monitor under the cursor (active screen), not the primary desktop.
+/// Cover the active monitor so Quick Paste can dim the full screen (not a small floating card).
 pub fn position_quick_paste(window: &WebviewWindow) {
-    let size = window
-        .outer_size()
-        .unwrap_or(tauri::PhysicalSize::new(680, 480));
-
     let monitor = window
         .cursor_position()
         .ok()
@@ -306,10 +314,9 @@ pub fn position_quick_paste(window: &WebviewWindow) {
 
     let mon_pos = monitor.position();
     let mon_size = monitor.size();
-    let x = mon_pos.x + (mon_size.width as i32 - size.width as i32) / 2;
-    let y = mon_pos.y + (mon_size.height as i32 - size.height as i32) / 4;
 
-    let _ = window.set_position(PhysicalPosition::new(x, y));
+    let _ = window.set_position(PhysicalPosition::new(mon_pos.x, mon_pos.y));
+    let _ = window.set_size(PhysicalSize::new(mon_size.width, mon_size.height));
 }
 
 fn monitor_at_point(window: &WebviewWindow, x: i32, y: i32) -> Option<Monitor> {
