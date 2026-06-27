@@ -95,3 +95,9 @@ export function onSyncTransfer(callback: (transfer: import("@memora/shared-types
     callback(event.payload);
   });
 }
+
+export function onSyncReceived(callback: (transfer: import("@memora/shared-types").SyncTransfer) => void) {
+  return listen<import("@memora/shared-types").SyncTransfer>("sync-received", (event) => {
+    callback(event.payload);
+  });
+}

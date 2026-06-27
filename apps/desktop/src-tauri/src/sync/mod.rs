@@ -12,9 +12,11 @@ use std::time::{Duration, Instant};
 
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Manager};
 
+use crate::clipboard::write_clipboard;
 use crate::db::Database;
+use crate::AppState;
 
 pub struct SyncEngine {
     db: Arc<Database>,
@@ -257,11 +259,67 @@ impl SyncEngine {
             }
         }
 
+        let from_remote = record
+            .source_device_id
+            .as_deref()
+            .zip(local_device.as_deref())
+            .is_some_and(|(source, local)| source != local);
+        let is_new = !self.db.item_exists(&record.id)?;
+
         self.db.upsert_remote_item(&record)?;
         self.db
             .set_setting("last_sync_at", &chrono::Utc::now().to_rfc3339())?;
         let _ = self.app.emit("items-updated", ());
+
+        if from_remote && is_new {
+            if let Some(text) = record
+                .plain_text
+                .as_deref()
+                .filter(|t| !t.trim().is_empty())
+            {
+                if let Some(state) = self.app.try_state::<AppState>() {
+                    if let Err(e) = write_clipboard(&state, text) {
+                        tracing::warn!("remote clipboard write: {e}");
+                    }
+                }
+            }
+
+            let source_device = record
+                .source_device_id
+                .as_deref()
+                .map(|id| self.remote_device_name(id))
+                .unwrap_or_else(|| "Another device".to_string());
+            let title = record
+                .display_title
+                .clone()
+                .or(record.preview_text.clone())
+                .unwrap_or_else(|| "Clipboard item".to_string());
+
+            let _ = self.app.emit(
+                "sync-received",
+                SyncTransferDto {
+                    item_id: record.id,
+                    title,
+                    source_device,
+                    online_devices: vec![],
+                },
+            );
+        }
+
         Ok(())
+    }
+
+    fn remote_device_name(&self, device_id: &str) -> String {
+        self.db
+            .get_devices()
+            .ok()
+            .and_then(|devices| {
+                devices
+                    .into_iter()
+                    .find(|d| d.id == device_id)
+                    .map(|d| d.name)
+            })
+            .unwrap_or_else(|| "Another device".to_string())
     }
 
     pub fn config(&self) -> Option<&SyncConfig> {
