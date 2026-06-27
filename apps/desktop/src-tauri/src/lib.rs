@@ -15,9 +15,11 @@ use std::time::{Duration, Instant};
 use parking_lot::Mutex;
 use tauri::{
     menu::{Menu, MenuItem},
-    tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
+    tray::{MouseButton, MouseButtonState, TrayIconEvent},
     Emitter, Manager, Monitor, PhysicalPosition, Position, RunEvent, Size, WebviewWindow, WindowEvent,
 };
+#[cfg(not(target_os = "macos"))]
+use tauri::tray::TrayIconBuilder;
 use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut, ShortcutState};
 
 /// Grace period after opening tray popover — ignore blur so the menubar click doesn't instantly hide it.
@@ -103,7 +105,7 @@ pub fn run() {
                 let tray = app
                     .tray_by_id("main")
                     .expect("tray id 'main' missing — add trayIcon to tauri.macos.conf.json");
-                tray.set_menu(Some(&menu))?;
+                tray.set_menu(Some(menu))?;
                 tray.set_show_menu_on_left_click(false)?;
 
                 let handle = app.handle().clone();
