@@ -152,17 +152,18 @@ impl SyncEngine {
             .await
             .map_err(|e| e.to_string())?;
 
-        let remote_items = client.fetch_recent_items(session, 100).await.map_err(|e| e.to_string())?;
-        for item in remote_items {
-            if let Err(e) = self.db.upsert_remote_item(&item) {
-                tracing::warn!("pull item {}: {e}", item.id);
-            }
-        }
-
+        // Devices must exist locally before items (FK: source_device_id)
         let remote_devices = client.fetch_devices(session).await.map_err(|e| e.to_string())?;
         for device in remote_devices {
             if let Err(e) = self.db.upsert_remote_device(&device) {
                 tracing::warn!("pull device {}: {e}", device.id);
+            }
+        }
+
+        let remote_items = client.fetch_recent_items(session, 100).await.map_err(|e| e.to_string())?;
+        for item in remote_items {
+            if let Err(e) = self.db.upsert_remote_item(&item) {
+                tracing::warn!("pull item {}: {e}", item.id);
             }
         }
 

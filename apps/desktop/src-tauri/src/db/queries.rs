@@ -482,6 +482,10 @@ impl Database {
     }
 
     pub fn upsert_remote_item(&self, item: &crate::sync::client::CloudItem) -> Result<(), rusqlite::Error> {
+        if let Some(ref device_id) = item.source_device_id {
+            self.ensure_device_exists(device_id)?;
+        }
+
         let conn = self.conn.lock().unwrap();
         conn.execute(
             "INSERT INTO items (
@@ -539,25 +543,56 @@ impl Database {
     }
 
     pub fn upsert_remote_device(&self, device: &crate::sync::client::CloudDevice) -> Result<(), rusqlite::Error> {
-        let is_current: i64 = self.conn.lock().unwrap().query_row(
-            "SELECT COUNT(*) FROM devices WHERE id = ?1 AND is_current = 1",
-            params![device.id],
-            |r| r.get(0),
-        ).unwrap_or(0);
+        let conn = self.conn.lock().unwrap();
+        let is_current: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM devices WHERE id = ?1 AND is_current = 1",
+                params![device.id],
+                |r| r.get(0),
+            )
+            .unwrap_or(0);
 
         if is_current > 0 {
             return Ok(());
         }
 
-        let now = device.last_seen_at.clone().unwrap_or_else(|| Utc::now().to_rfc3339());
-        self.conn.lock().unwrap().execute(
+        let created = device
+            .last_seen_at
+            .clone()
+            .unwrap_or_else(|| Utc::now().to_rfc3339());
+        conn.execute(
             "INSERT INTO devices (id, name, platform, last_seen_at, is_current, created_at)
              VALUES (?1, ?2, ?3, ?4, 0, ?5)
              ON CONFLICT(id) DO UPDATE SET
                 name = excluded.name,
+                platform = excluded.platform,
                 last_seen_at = excluded.last_seen_at",
-            params![device.id, device.name, device.platform, device.last_seen_at, now],
+            params![
+                device.id,
+                device.name,
+                device.platform,
+                device.last_seen_at,
+                created,
+            ],
         )?;
+        Ok(())
+    }
+
+    fn ensure_device_exists(&self, device_id: &str) -> Result<(), rusqlite::Error> {
+        let conn = self.conn.lock().unwrap();
+        let exists: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM devices WHERE id = ?1",
+            params![device_id],
+            |r| r.get(0),
+        )?;
+        if exists == 0 {
+            let now = Utc::now().to_rfc3339();
+            conn.execute(
+                "INSERT INTO devices (id, name, platform, last_seen_at, is_current, created_at)
+                 VALUES (?1, 'Remote Device', 'unknown', NULL, 0, ?2)",
+                params![device_id, now],
+            )?;
+        }
         Ok(())
     }
 }

@@ -1,0 +1,8 @@
+# Helps on slow or flaky networks (common on first Mac build)
+[net]
+retry = 10
+git-fetch-with-cli = true
+
+[http]
+timeout = 600
+multiplexing = false

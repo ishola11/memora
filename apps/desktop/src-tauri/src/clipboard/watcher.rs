@@ -36,7 +36,7 @@ pub fn start_watcher(app: AppHandle) {
             }
 
             if let Ok(text) = clipboard.get_text() {
-                if text.is_empty() {
+                if text.is_empty() || should_ignore_clipboard_text(&text) {
                     continue;
                 }
                 let (content_type, captured) = classify(&text);
@@ -135,4 +135,25 @@ pub fn write_clipboard(state: &AppState, text: &str) -> Result<(), Box<dyn std::
     let mut clipboard = Clipboard::new()?;
     clipboard.set_text(text.to_string())?;
     Ok(())
+}
+
+/// Skip terminal output, compiler warnings, and other non-user clipboard noise.
+fn should_ignore_clipboard_text(text: &str) -> bool {
+    let trimmed = text.trim();
+    if trimmed.len() < 3 {
+        return true;
+    }
+    let noise_markers = [
+        "warning:",
+        "error:",
+        "Finished `dev` profile",
+        "Finished `release` profile",
+        "Compiling memora-desktop",
+        "Running `target/",
+        "--> src",
+        "--> src\\",
+        "FOREIGN KEY constraint",
+        "memora_desktop_lib::",
+    ];
+    noise_markers.iter().any(|m| trimmed.contains(m))
 }
