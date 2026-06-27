@@ -15,6 +15,9 @@ import { useActionToastStore } from "@/stores/action-toast-store";
 import { useAppStore } from "@/stores/app-store";
 import type { AppTab, PreviewCard as PreviewCardType } from "@memora/shared-types";
 
+const SNIPPETS_EMPTY_MESSAGE =
+  "Snippets are saved text you reuse often — signatures, templates, and boilerplate. Snippet creation is coming soon; for now, history clips appear here only if marked as snippets.";
+
 export function QuickPasteLauncher() {
   const inputRef = useRef<HTMLInputElement>(null);
   const isQuickPasteWindow =
@@ -42,6 +45,20 @@ export function QuickPasteLauncher() {
       void refresh();
     }
   }, [quickPasteOpen, refresh]);
+
+  useEffect(() => {
+    if (!quickPasteOpen) return;
+
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        setQuickPasteOpen(false);
+      }
+    };
+
+    document.addEventListener("keydown", onKeyDown, true);
+    return () => document.removeEventListener("keydown", onKeyDown, true);
+  }, [quickPasteOpen, setQuickPasteOpen]);
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -83,7 +100,7 @@ export function QuickPasteLauncher() {
     }
   };
 
-  if (!quickPasteOpen && !isQuickPasteWindow) return null;
+  if (!quickPasteOpen) return null;
 
   const cardActions = (card: PreviewCardType) => ({
     onCopy: async () => {
@@ -126,6 +143,8 @@ export function QuickPasteLauncher() {
     },
   });
 
+  const dismiss = () => setQuickPasteOpen(false);
+
   const shellClass = isQuickPasteWindow
     ? "flex h-full w-full flex-col bg-black/40 backdrop-blur-[4px] dark:bg-black/55"
     : "fixed inset-0 z-50 flex flex-col bg-black/35 backdrop-blur-[3px] dark:bg-black/50";
@@ -133,7 +152,7 @@ export function QuickPasteLauncher() {
   return (
     <div
       className={shellClass}
-      onMouseDown={() => setQuickPasteOpen(false)}
+      onMouseDown={dismiss}
     >
       <div className="flex flex-1 items-start justify-center px-5 pt-[9vh] pb-6">
         <div
@@ -205,6 +224,11 @@ export function QuickPasteLauncher() {
                   </div>
                 ) : null,
               )
+            )}
+            {!query.trim() && timeline.every((s) => s.items.length === 0) && (
+              <p className="px-3 py-12 text-center text-sm text-muted">
+                {activeTab === "snippets" ? SNIPPETS_EMPTY_MESSAGE : "Nothing here yet"}
+              </p>
             )}
           </div>
 

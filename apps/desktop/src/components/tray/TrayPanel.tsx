@@ -106,6 +106,9 @@ export function TrayPanel() {
         ? "No items in this collection yet. Hover a clip and click the folder icon to add it."
         : "Select a collection above, or add clips via the folder icon on any card.";
 
+  const snippetsEmptyMessage =
+    "Snippets are saved text you reuse often — signatures, templates, and boilerplate. Snippet creation is coming soon.";
+
   return (
     <div
       className={cn(
@@ -173,7 +176,11 @@ export function TrayPanel() {
           )
         ) : timeline.every((s) => s.items.length === 0) ? (
           <p className="px-3 py-12 text-center text-sm text-muted">
-            {activeTab === "collections" ? collectionsEmptyMessage : "Nothing here yet"}
+            {activeTab === "collections"
+              ? collectionsEmptyMessage
+              : activeTab === "snippets"
+                ? snippetsEmptyMessage
+                : "Nothing here yet"}
           </p>
         ) : (
           timeline.map((section) =>
