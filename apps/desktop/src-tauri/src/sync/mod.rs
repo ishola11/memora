@@ -15,7 +15,9 @@ use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, Manager};
 
 use crate::clipboard::write_clipboard;
-use crate::db::Database;
+use crate::db::{
+    Database, SETTING_LAST_AUTH_USER_ID, SETTING_LOCAL_DEVICE_ID, SETTING_LOCAL_DEVICE_NAME,
+};
 use crate::AppState;
 
 pub struct SyncEngine {
@@ -45,6 +47,32 @@ pub struct SyncTransferDto {
     pub title: String,
     pub source_device: String,
     pub online_devices: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SyncActionResultDto {
+    #[serde(flatten)]
+    pub state: SyncStateDto,
+    pub message: String,
+    pub pending_before: i64,
+    pub pending_after: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SyncRepairResultDto {
+    #[serde(flatten)]
+    pub state: SyncStateDto,
+    pub message: String,
+    pub pending_before: i64,
+    pub pending_after: i64,
+    pub queue_cleared: i64,
+    pub device_rotated: bool,
+}
+
+struct PushReport {
+    failures: u32,
 }
 
 impl SyncEngine {
@@ -98,6 +126,7 @@ impl SyncEngine {
         let session = client.login(email, password).await.map_err(|e| e.to_string())?;
         auth::save_session(&self.db, &session, email).map_err(|e| e.to_string())?;
         self.bootstrap_after_auth(&session).await?;
+        let _ = self.sync_tick().await;
         self.get_state()
     }
 
@@ -107,17 +136,57 @@ impl SyncEngine {
     }
 
     /// Pull from cloud, push pending changes, and refresh local state.
-    pub async fn force_sync_now(&self) -> Result<SyncStateDto, String> {
+    pub async fn force_sync_now(&self) -> Result<SyncActionResultDto, String> {
+        let pending_before = self.db.pending_sync_count().map_err(|e| e.to_string())?;
         let session = auth::load_session(&self.db).map_err(|e| e.to_string())?.ok_or("Sign in to sync")?;
         let session = try_refresh_session(self, session)
             .await
             .map_err(ensure_session_error_message)?;
 
         self.bootstrap_after_auth(&session).await?;
-        self.sync_tick()
+        let report = self
+            .sync_tick()
             .await
             .map_err(|e| format!("Sync failed: {e}"))?;
-        self.get_state()
+        let state = self.get_state()?;
+        let pending_after = state.pending_count;
+        Ok(SyncActionResultDto {
+            message: sync_summary_message(pending_before, pending_after, report.failures, false),
+            pending_before,
+            pending_after,
+            state,
+        })
+    }
+
+    /// Reset device registration, clear stuck queue rows, re-pull from cloud, and push locals.
+    pub async fn repair_sync(&self) -> Result<SyncRepairResultDto, String> {
+        let pending_before = self.db.pending_sync_count().map_err(|e| e.to_string())?;
+        let session = auth::load_session(&self.db).map_err(|e| e.to_string())?.ok_or("Sign in to repair sync")?;
+        let session = try_refresh_session(self, session)
+            .await
+            .map_err(ensure_session_error_message)?;
+
+        let queue_cleared = self
+            .db
+            .clear_pending_sync_queue()
+            .map_err(|e| e.to_string())?;
+        self.rotate_local_device()?;
+        self.bootstrap_after_auth(&session).await?;
+        let report = self
+            .sync_tick()
+            .await
+            .map_err(|e| format!("Sync failed after repair: {e}"))?;
+
+        let state = self.get_state()?;
+        let pending_after = state.pending_count;
+        Ok(SyncRepairResultDto {
+            message: sync_summary_message(pending_before, pending_after, report.failures, true),
+            pending_before,
+            pending_after,
+            queue_cleared,
+            device_rotated: true,
+            state,
+        })
     }
 
     pub fn start(self: Arc<Self>) {
@@ -130,11 +199,11 @@ impl SyncEngine {
                         if let Err(e) = engine.bootstrap_after_auth(&session).await {
                             tracing::warn!("sync bootstrap: {e}");
                         }
-                        let rt_engine = engine.clone();
-                        tokio::spawn(async move {
-                            realtime::run_realtime_loop(rt_engine).await;
-                        });
                     }
+                    let rt_engine = engine.clone();
+                    tokio::spawn(async move {
+                        realtime::run_realtime_loop(rt_engine).await;
+                    });
                 }
 
                 loop {
@@ -174,10 +243,7 @@ impl SyncEngine {
         }
 
         self.db
-            .set_setting(
-                crate::db::models::SETTING_LAST_AUTH_USER_ID,
-                &session.user_id,
-            )
+            .set_setting(SETTING_LAST_AUTH_USER_ID, &session.user_id)
             .map_err(|e| e.to_string())?;
 
         // Devices must exist locally before items (FK: source_device_id)
@@ -221,7 +287,7 @@ impl SyncEngine {
     fn prepare_local_device(&self, session: &AuthSession) -> Result<(String, String), String> {
         let last_user = self
             .db
-            .get_setting(crate::db::models::SETTING_LAST_AUTH_USER_ID)
+            .get_setting(SETTING_LAST_AUTH_USER_ID)
             .map_err(|e| e.to_string())?;
         if let Some(previous) = last_user.as_ref() {
             if previous != &session.user_id {
@@ -232,7 +298,7 @@ impl SyncEngine {
 
         let device_id = self
             .db
-            .get_setting(crate::db::models::SETTING_LOCAL_DEVICE_ID)
+            .get_setting(SETTING_LOCAL_DEVICE_ID)
             .map_err(|e| e.to_string())?
             .filter(|id| !id.is_empty())
             .unwrap_or_else(|| {
@@ -242,7 +308,7 @@ impl SyncEngine {
             });
         let device_name = self
             .db
-            .get_setting(crate::db::models::SETTING_LOCAL_DEVICE_NAME)
+            .get_setting(SETTING_LOCAL_DEVICE_NAME)
             .map_err(|e| e.to_string())?
             .unwrap_or_else(|| "My Device".to_string());
         Ok((device_id, device_name))
@@ -267,19 +333,22 @@ impl SyncEngine {
         }
     }
 
-    async fn sync_tick(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    async fn sync_tick(&self) -> Result<PushReport, Box<dyn std::error::Error + Send + Sync>> {
+        let mut failures = 0u32;
         let Some(client) = self.client.as_ref() else {
-            return Ok(());
+            return Ok(PushReport { failures });
         };
 
         let Some(session) = auth::load_session(&self.db)? else {
-            return Ok(());
+            return Ok(PushReport { failures });
         };
 
         let session = match try_refresh_session(self, session).await {
             Ok(session) => session,
-            Err(EnsureSessionError::AuthExpired) => return Ok(()),
-            Err(EnsureSessionError::NotConfigured | EnsureSessionError::NotLoggedIn) => return Ok(()),
+            Err(EnsureSessionError::AuthExpired) => return Ok(PushReport { failures }),
+            Err(EnsureSessionError::NotConfigured | EnsureSessionError::NotLoggedIn) => {
+                return Ok(PushReport { failures });
+            }
             Err(EnsureSessionError::Transient(e)) => return Err(e.into()),
         };
 
@@ -300,7 +369,10 @@ impl SyncEngine {
                     self.db.set_setting("last_sync_at", &chrono::Utc::now().to_rfc3339())?;
                     let _ = self.app.emit("collections-updated", ());
                 }
-                Err(e) => tracing::warn!("push collection {}: {e}", collection.id),
+                Err(e) => {
+                    failures += 1;
+                    tracing::warn!("push collection {}: {e}", collection.id);
+                }
             }
         }
 
@@ -343,7 +415,10 @@ impl SyncEngine {
                         },
                     );
                 }
-                Err(e) => tracing::warn!("push item {}: {e}", item.id),
+                Err(e) => {
+                    failures += 1;
+                    tracing::warn!("push item {}: {e}", item.id);
+                }
             }
         }
 
@@ -382,6 +457,7 @@ impl SyncEngine {
                             link.collection_id
                         );
                     } else {
+                        failures += 1;
                         tracing::warn!(
                             "push item_collection {}:{}: {e}",
                             link.item_id,
@@ -413,11 +489,14 @@ impl SyncEngine {
                     let _ = self.app.emit("collections-updated", ());
                     let _ = self.app.emit("items-updated", ());
                 }
-                Err(e) => tracing::warn!(
-                    "delete item_collection {}:{}: {e}",
-                    link.item_id,
-                    link.collection_id
-                ),
+                Err(e) => {
+                    failures += 1;
+                    tracing::warn!(
+                        "delete item_collection {}:{}: {e}",
+                        link.item_id,
+                        link.collection_id
+                    );
+                }
             }
         }
 
@@ -435,7 +514,7 @@ impl SyncEngine {
             *self.last_presence.lock() = Some(Instant::now());
         }
 
-        Ok(())
+        Ok(PushReport { failures })
     }
 
     pub async fn handle_remote_item(
@@ -618,6 +697,37 @@ impl std::fmt::Display for EnsureSessionError {
             EnsureSessionError::Transient(msg) => write!(f, "{msg}"),
         }
     }
+}
+
+fn sync_summary_message(
+    pending_before: i64,
+    pending_after: i64,
+    push_failures: u32,
+    repaired: bool,
+) -> String {
+    let prefix = if repaired { "Repair finished" } else { "Sync finished" };
+
+    if push_failures > 0 {
+        return format!(
+            "{prefix}: {push_failures} change(s) failed to upload. {pending_after} still pending — try Repair sync or sign in again."
+        );
+    }
+
+    if pending_after == 0 {
+        if pending_before > 0 {
+            return format!("{prefix}: all {pending_before} pending change(s) uploaded.");
+        }
+        return format!("{prefix}: everything is up to date.");
+    }
+
+    if pending_after < pending_before {
+        return format!(
+            "{prefix}: uploaded {} change(s). {pending_after} still waiting (usually waiting on linked items or collections).",
+            pending_before - pending_after
+        );
+    }
+
+    format!("{prefix}: {pending_after} change(s) still pending.")
 }
 
 fn ensure_session_error_message(err: EnsureSessionError) -> String {

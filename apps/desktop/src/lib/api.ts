@@ -155,8 +155,12 @@ export async function authLogout(): Promise<SyncState> {
   return invoke<SyncState>("auth_logout");
 }
 
-export async function forceSyncNow(): Promise<SyncState> {
-  return invoke<SyncState>("force_sync_now");
+export async function forceSyncNow(): Promise<import("@memora/shared-types").SyncActionResult> {
+  return invoke("force_sync_now");
+}
+
+export async function repairSync(): Promise<import("@memora/shared-types").SyncRepairResult> {
+  return invoke("repair_sync");
 }
 
 export async function openSettings(): Promise<void> {

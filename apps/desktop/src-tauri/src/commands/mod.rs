@@ -289,8 +289,17 @@ pub fn auth_logout(state: State<'_, AppState>) -> Result<crate::sync::SyncStateD
 }
 
 #[tauri::command]
-pub async fn force_sync_now(state: State<'_, AppState>) -> Result<crate::sync::SyncStateDto, String> {
+pub async fn force_sync_now(
+    state: State<'_, AppState>,
+) -> Result<crate::sync::SyncActionResultDto, String> {
     state.sync_engine.force_sync_now().await
+}
+
+#[tauri::command]
+pub async fn repair_sync(
+    state: State<'_, AppState>,
+) -> Result<crate::sync::SyncRepairResultDto, String> {
+    state.sync_engine.repair_sync().await
 }
 
 #[tauri::command]

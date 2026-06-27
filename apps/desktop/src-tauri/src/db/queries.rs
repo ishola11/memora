@@ -1138,6 +1138,12 @@ impl Database {
         )
     }
 
+    pub fn clear_pending_sync_queue(&self) -> Result<i64, rusqlite::Error> {
+        let conn = self.conn.lock().unwrap();
+        let cleared = conn.execute("DELETE FROM sync_queue WHERE status = 'pending'", [])?;
+        Ok(cleared as i64)
+    }
+
     pub fn mark_synced(&self, entity_id: &str) -> Result<(), rusqlite::Error> {
         let conn = self.conn.lock().unwrap();
         conn.execute(

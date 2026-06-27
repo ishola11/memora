@@ -10,6 +10,7 @@ import {
   RefreshCw,
   Sun,
   Trash2,
+  Wrench,
   FolderOpen,
   Download,
   Info,
@@ -22,6 +23,7 @@ import {
   getCollections,
   getDevices,
   getSyncState,
+  repairSync,
   setHistoryRetention,
   setLaunchAtLogin,
   setThemePreference,
@@ -75,6 +77,7 @@ export function SettingsPanel() {
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [syncing, setSyncing] = useState(false);
+  const [repairing, setRepairing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [syncMessage, setSyncMessage] = useState<string | null>(null);
   const [appVersion, setAppVersion] = useState<string | null>(null);
@@ -191,14 +194,30 @@ export function SettingsPanel() {
     setError(null);
     setSyncMessage(null);
     try {
-      const sync = await forceSyncNow();
-      setState(sync);
-      setSyncMessage("Sync completed successfully.");
+      const result = await forceSyncNow();
+      setState(result);
+      setSyncMessage(result.message);
       await refresh();
     } catch (err) {
       setError(String(err));
     } finally {
       setSyncing(false);
+    }
+  };
+
+  const handleRepairSync = async () => {
+    setRepairing(true);
+    setError(null);
+    setSyncMessage(null);
+    try {
+      const result = await repairSync();
+      setState(result);
+      setSyncMessage(result.message);
+      await refresh();
+    } catch (err) {
+      setError(String(err));
+    } finally {
+      setRepairing(false);
     }
   };
 
@@ -281,7 +300,7 @@ export function SettingsPanel() {
                   <button
                     type="button"
                     onClick={() => void handleForceSync()}
-                    disabled={syncing || loading}
+                    disabled={syncing || repairing || loading}
                     className="flex w-full items-center justify-center gap-2 rounded-xl border border-border/60 bg-surface-elevated/50 py-2.5 text-sm font-medium transition-colors hover:bg-surface-elevated disabled:opacity-50"
                   >
                     {syncing ? (
@@ -291,13 +310,43 @@ export function SettingsPanel() {
                     )}
                     {syncing ? "Syncing…" : "Sync now"}
                   </button>
+                  <button
+                    type="button"
+                    onClick={() => void handleRepairSync()}
+                    disabled={syncing || repairing || loading}
+                    className="flex w-full items-center justify-center gap-2 rounded-xl border border-amber-500/30 bg-amber-500/5 py-2.5 text-sm font-medium transition-colors hover:bg-amber-500/10 disabled:opacity-50"
+                  >
+                    {repairing ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Wrench className="h-4 w-4" />
+                    )}
+                    {repairing ? "Repairing…" : "Repair sync"}
+                  </button>
+                  <p className="text-xs leading-relaxed text-muted">
+                    Use Repair sync if sign-in, device registration, or uploads fail. It resets
+                    this device in the cloud, clears stuck queue entries, re-downloads your data,
+                    and retries uploads.
+                  </p>
                   {syncMessage && (
-                    <p className="text-center text-xs text-green-600 dark:text-green-400">{syncMessage}</p>
+                    <p
+                      className={cn(
+                        "text-center text-xs",
+                        syncMessage.includes("failed") || syncMessage.includes("still pending")
+                          ? "text-amber-700 dark:text-amber-300"
+                          : "text-green-600 dark:text-green-400",
+                      )}
+                    >
+                      {syncMessage}
+                    </p>
+                  )}
+                  {error && (
+                    <p className="text-center text-sm text-red-500">{error}</p>
                   )}
                   <button
                     type="button"
                     onClick={() => void handleLogout()}
-                    disabled={loading}
+                    disabled={loading || syncing || repairing}
                     className="flex w-full items-center justify-center gap-2 rounded-xl border border-border/60 py-2.5 text-sm hover:bg-surface-elevated"
                   >
                     <LogOut className="h-4 w-4" />

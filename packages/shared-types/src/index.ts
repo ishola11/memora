@@ -106,6 +106,17 @@ export interface SyncState {
   cloudDeviceCount: number;
 }
 
+export interface SyncActionResult extends SyncState {
+  message: string;
+  pendingBefore: number;
+  pendingAfter: number;
+}
+
+export interface SyncRepairResult extends SyncActionResult {
+  queueCleared: number;
+  deviceRotated: boolean;
+}
+
 export interface SyncTransfer {
   itemId: string;
   title: string;

@@ -279,6 +279,7 @@ pub fn run() {
             commands::set_theme_preference,
             commands::open_settings,
             commands::force_sync_now,
+            commands::repair_sync,
         ])
         .build(tauri::generate_context!())
         .expect("error building tauri app")
