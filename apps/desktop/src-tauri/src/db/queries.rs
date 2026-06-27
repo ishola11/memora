@@ -753,6 +753,15 @@ impl Database {
         if exists > 0 {
             return Ok(());
         }
+        // Ensure the parent collection is queued for cloud push before the link.
+        let collection_pending: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM collections WHERE id = ?1 AND sync_status = 'pending' AND deleted_at IS NULL",
+            params![collection_id],
+            |r| r.get(0),
+        )?;
+        if collection_pending > 0 {
+            self.enqueue_sync(&conn, "create", "collection", collection_id)?;
+        }
         conn.execute(
             "INSERT INTO item_collections (item_id, collection_id, sync_status) VALUES (?1, ?2, 'pending')",
             params![item_id, collection_id],
@@ -947,7 +956,14 @@ impl Database {
     pub fn list_pending_sync_item_collections(&self) -> Result<Vec<ItemCollectionRecord>, rusqlite::Error> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
-            "SELECT item_id, collection_id FROM item_collections WHERE sync_status = 'pending' LIMIT 50",
+            "SELECT ic.item_id, ic.collection_id
+             FROM item_collections ic
+             INNER JOIN collections c ON c.id = ic.collection_id AND c.deleted_at IS NULL
+             INNER JOIN items i ON i.id = ic.item_id AND i.deleted_at IS NULL
+             WHERE ic.sync_status = 'pending'
+               AND c.sync_status = 'synced'
+               AND i.sync_status = 'synced'
+             LIMIT 50",
         )?;
         let rows = stmt.query_map([], |row| {
             Ok(ItemCollectionRecord {
@@ -1019,6 +1035,7 @@ impl Database {
         &self,
         link: &crate::sync::client::CloudItemCollection,
     ) -> Result<(), rusqlite::Error> {
+        self.ensure_collection_exists(&link.collection_id)?;
         let conn = self.conn.lock().unwrap();
         conn.execute(
             "INSERT INTO item_collections (item_id, collection_id, sync_status)
@@ -1148,6 +1165,24 @@ impl Database {
                 "INSERT INTO devices (id, name, platform, last_seen_at, is_current, created_at)
                  VALUES (?1, 'Remote Device', 'unknown', NULL, 0, ?2)",
                 params![device_id, now],
+            )?;
+        }
+        Ok(())
+    }
+
+    fn ensure_collection_exists(&self, collection_id: &str) -> Result<(), rusqlite::Error> {
+        let conn = self.conn.lock().unwrap();
+        let exists: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM collections WHERE id = ?1",
+            params![collection_id],
+            |r| r.get(0),
+        )?;
+        if exists == 0 {
+            let now = Utc::now().to_rfc3339();
+            conn.execute(
+                "INSERT INTO collections (id, name, color, sort_order, created_at, updated_at, sync_status)
+                 VALUES (?1, 'Remote Collection', '#6366f1', 0, ?2, ?2, 'synced')",
+                params![collection_id, now],
             )?;
         }
         Ok(())

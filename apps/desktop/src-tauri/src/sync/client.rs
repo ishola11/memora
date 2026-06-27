@@ -58,6 +58,11 @@ pub struct CloudItemCollection {
     pub collection_id: String,
 }
 
+/// True when Supabase/Postgres rejected a row because a parent FK row is missing.
+pub fn is_foreign_key_violation(err: &str) -> bool {
+    err.contains("23503") || err.contains("foreign key")
+}
+
 pub struct SupabaseClient {
     http: reqwest::Client,
     config: SyncConfig,

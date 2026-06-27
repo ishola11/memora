@@ -41,6 +41,12 @@
 - [x] **Theme system** — System / Light / Dark
 - [x] **Enhanced dedupe** — 5 min hash window, plain-text dedupe, longer suppress
 
+## Phase 3.1: Sync & Mac polish (2026-06-27)
+
+- [x] **Collections FK sync** — push/pull order: collections → items → item_collections; defer link push until parents synced; `ensure_collection_exists` on pull
+- [x] **Mac menubar overlay** — `visibleOnAllWorkspaces`, `acceptFirstMouse`, NSWindow level + collection behavior for tray + quick-paste
+- [x] **PreviewCard actions** — header row layout; icons top-right (no text overlay); collection dropdown below button
+
 ## Next Up
 
 1. Run `003_collections_realtime.sql` in Supabase if project predates this update

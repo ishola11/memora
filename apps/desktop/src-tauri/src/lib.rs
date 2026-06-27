@@ -124,6 +124,12 @@ pub fn run() {
             sync_engine.clone().run_retention_if_due();
             sync_engine.start();
 
+            for label in ["tray", "quick-paste"] {
+                if let Some(window) = app.get_webview_window(label) {
+                    configure_popover_window(&window);
+                }
+            }
+
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -187,6 +193,7 @@ pub fn run() {
 fn toggle_quick_paste(app: &tauri::AppHandle, show: bool) {
     if let Some(window) = app.get_webview_window("quick-paste") {
         if show {
+            configure_popover_window(&window);
             position_quick_paste(&window);
             let _ = window.show();
             let _ = window.set_focus();
@@ -211,6 +218,7 @@ fn toggle_tray_window(
             return;
         }
         if show {
+            configure_popover_window(&window);
             if let Some(rect) = tray_rect {
                 position_tray_panel(&window, rect);
             } else {
@@ -350,4 +358,33 @@ fn position_tray_panel_fallback(window: &WebviewWindow) {
     );
 
     let _ = window.set_position(pos);
+}
+
+/// Tray / Quick Paste overlays must float above fullscreen apps and follow the active Space.
+fn configure_popover_window(window: &WebviewWindow) {
+    let _ = window.set_always_on_top(true);
+    #[cfg(target_os = "macos")]
+    {
+        let _ = window.set_visible_on_all_workspaces(true);
+        configure_macos_popover_ns_window(window);
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn configure_macos_popover_ns_window(window: &WebviewWindow) {
+    use cocoa::appkit::{NSMainMenuWindowLevel, NSWindow, NSWindowCollectionBehavior};
+    use cocoa::base::id;
+
+    let Ok(ns_win) = window.ns_window() else {
+        return;
+    };
+    unsafe {
+        let ns_win = ns_win as id;
+        ns_win.setLevel_((NSMainMenuWindowLevel + 1) as _);
+        ns_win.setCollectionBehavior_(
+            NSWindowCollectionBehavior::NSWindowCollectionBehaviorCanJoinAllSpaces
+                | NSWindowCollectionBehavior::NSWindowCollectionBehaviorStationary
+                | NSWindowCollectionBehavior::NSWindowCollectionBehaviorFullScreenAuxiliary,
+        );
+    }
 }

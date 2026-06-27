@@ -165,17 +165,18 @@ impl SyncEngine {
             }
         }
 
-        let remote_items = client.fetch_recent_items(session, 100).await.map_err(|e| e.to_string())?;
-        for item in remote_items {
-            if let Err(e) = self.db.upsert_remote_item(&item) {
-                tracing::warn!("pull item {}: {e}", item.id);
-            }
-        }
-
+        // Collections before items/item_collections (FK: collection_id, item_id)
         let remote_collections = client.fetch_collections(session).await.map_err(|e| e.to_string())?;
         for collection in remote_collections {
             if let Err(e) = self.db.upsert_remote_collection(&collection) {
                 tracing::warn!("pull collection {}: {e}", collection.id);
+            }
+        }
+
+        let remote_items = client.fetch_recent_items(session, 100).await.map_err(|e| e.to_string())?;
+        for item in remote_items {
+            if let Err(e) = self.db.upsert_remote_item(&item) {
+                tracing::warn!("pull item {}: {e}", item.id);
             }
         }
 
@@ -210,6 +211,27 @@ impl SyncEngine {
                 .get_setting("user_email")?
                 .unwrap_or_default();
             auth::save_session(&self.db, &session, &email)?;
+        }
+
+        // Push order: collections → items → item_collections (cloud FK parents must exist)
+        let pending_collections = self.db.list_pending_sync_collections()?;
+        for collection in pending_collections {
+            let is_deletion = collection.deleted_at.is_some();
+            let result = if is_deletion {
+                client.delete_collection(&session, &collection.id).await
+            } else {
+                client.upsert_collection(&session, &collection).await
+            };
+            match result {
+                Ok(()) => {
+                    if let Err(e) = self.db.mark_collection_synced(&collection.id) {
+                        tracing::warn!("mark collection synced {}: {e}", collection.id);
+                    }
+                    self.db.set_setting("last_sync_at", &chrono::Utc::now().to_rfc3339())?;
+                    let _ = self.app.emit("collections-updated", ());
+                }
+                Err(e) => tracing::warn!("push collection {}: {e}", collection.id),
+            }
         }
 
         let pending = self.db.list_pending_sync_items()?;
@@ -255,26 +277,6 @@ impl SyncEngine {
             }
         }
 
-        let pending_collections = self.db.list_pending_sync_collections()?;
-        for collection in pending_collections {
-            let is_deletion = collection.deleted_at.is_some();
-            let result = if is_deletion {
-                client.delete_collection(&session, &collection.id).await
-            } else {
-                client.upsert_collection(&session, &collection).await
-            };
-            match result {
-                Ok(()) => {
-                    if let Err(e) = self.db.mark_collection_synced(&collection.id) {
-                        tracing::warn!("mark collection synced {}: {e}", collection.id);
-                    }
-                    self.db.set_setting("last_sync_at", &chrono::Utc::now().to_rfc3339())?;
-                    let _ = self.app.emit("collections-updated", ());
-                }
-                Err(e) => tracing::warn!("push collection {}: {e}", collection.id),
-            }
-        }
-
         let pending_links = self.db.list_pending_sync_item_collections()?;
         for link in pending_links {
             match client
@@ -302,11 +304,21 @@ impl SyncEngine {
                     let _ = self.app.emit("collections-updated", ());
                     let _ = self.app.emit("items-updated", ());
                 }
-                Err(e) => tracing::warn!(
-                    "push item_collection {}:{}: {e}",
-                    link.item_id,
-                    link.collection_id
-                ),
+                Err(e) => {
+                    if client::is_foreign_key_violation(&e) {
+                        tracing::debug!(
+                            "defer item_collection {}:{} until parents sync: {e}",
+                            link.item_id,
+                            link.collection_id
+                        );
+                    } else {
+                        tracing::warn!(
+                            "push item_collection {}:{}: {e}",
+                            link.item_id,
+                            link.collection_id
+                        );
+                    }
+                }
             }
         }
 
