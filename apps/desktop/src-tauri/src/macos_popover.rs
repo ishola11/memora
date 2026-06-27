@@ -80,21 +80,11 @@ fn ns_window_handle(window: &WebviewWindow) -> Option<cocoa::base::id> {
     Some(ns_win)
 }
 
-#[cfg(target_os = "macos")]
-unsafe fn send_bool_if_responds(ns_win: cocoa::base::id, selector: objc::runtime::Sel, value: bool) {
-    use cocoa::base::{NO, YES};
-    use objc::{msg_send, sel, sel_impl};
-
-    if msg_send![ns_win, respondsToSelector: selector] {
-        let flag = if value { YES } else { NO };
-        let _: () = msg_send![ns_win, selector, flag];
-    }
-}
-
 /// AppKit overlay flags for full-screen Space compatibility.
 #[cfg(target_os = "macos")]
 unsafe fn apply_popover_ns_config(ns_win: cocoa::base::id) {
     use cocoa::appkit::NSWindowCollectionBehavior;
+    use cocoa::base::{NO, YES};
     use objc::{msg_send, sel, sel_impl};
 
     // NSPopUpMenuWindowLevel — menubar popover tier (above full-screen content).
@@ -116,15 +106,17 @@ unsafe fn apply_popover_ns_config(ns_win: cocoa::base::id) {
     let _: () = msg_send![ns_win, setLevel: POPUP_MENU_WINDOW_LEVEL];
 
     // macOS 10.11+ — explicit permission to appear over other apps' full-screen windows.
-    send_bool_if_responds(
-        ns_win,
-        sel!(setCanAppearWhileOtherAppIsFullScreen:),
-        true,
-    );
+    if msg_send![ns_win, respondsToSelector: sel!(setCanAppearWhileOtherAppIsFullScreen:)] {
+        let _: () = msg_send![ns_win, setCanAppearWhileOtherAppIsFullScreen: YES];
+    }
 
     // NSPanel-only — safe no-op on NSWindow when selector is absent.
-    send_bool_if_responds(ns_win, sel!(setFloatingPanel:), true);
-    send_bool_if_responds(ns_win, sel!(setHidesOnDeactivate:), false);
+    if msg_send![ns_win, respondsToSelector: sel!(setFloatingPanel:)] {
+        let _: () = msg_send![ns_win, setFloatingPanel: YES];
+    }
+    if msg_send![ns_win, respondsToSelector: sel!(setHidesOnDeactivate:)] {
+        let _: () = msg_send![ns_win, setHidesOnDeactivate: NO];
+    }
 
     let style_result = catch_unwind(AssertUnwindSafe(|| {
         let style_mask: usize = msg_send![ns_win, styleMask];
