@@ -99,9 +99,12 @@ See [PROGRESS.md](./PROGRESS.md) for implementation checklist.
 ## Releases
 
 1. **One-time:** `npm run generate:updater-keys` — creates minisign keypair; commit `apps/desktop/src-tauri/keys/memora.key.pub`
-2. **GitHub secret:** paste `memora.key` contents into `TAURI_SIGNING_PRIVATE_KEY`
-3. **Optional macOS code signing:** `APPLE_CERTIFICATE`, `APPLE_CERTIFICATE_PASSWORD`, `APPLE_SIGNING_IDENTITY`, `APPLE_ID`, `APPLE_PASSWORD`, `APPLE_TEAM_ID`
-4. **Ship:** `git tag v0.1.0 && git push origin v0.1.0` — builds Windows + macOS installers and `latest.json` for in-app updates
+2. **GitHub secrets** (Settings → Secrets and variables → Actions → **Repository secrets**):
+   - `TAURI_SIGNING_PRIVATE_KEY` — contents of `keys/memora.key`
+   - `SUPABASE_URL` — same value as in `apps/desktop/.env`
+   - `SUPABASE_ANON_KEY` — same value as in `apps/desktop/.env`
+3. **Optional macOS code signing:** `APPLE_CERTIFICATE`, …
+4. **Ship:** `git tag v0.1.1 && git push origin v0.1.1`
 5. **In-app:** Settings → About → Check for updates
 
 ## License

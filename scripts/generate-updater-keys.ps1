@@ -10,7 +10,7 @@ New-Item -ItemType Directory -Force -Path $KeysDir | Out-Null
 Push-Location $Desktop
 try {
   $env:CI = "true"
-  npx --yes @tauri-apps/cli signer generate -w "src-tauri/keys/memora.key" -f -p '""'
+  npx --yes @tauri-apps/cli signer generate -w "src-tauri/keys/memora.key" -f --ci
 } finally {
   Pop-Location
 }

@@ -1,6 +1,6 @@
 [package]
 name = "memora-desktop"
-version = "0.1.0"
+version = "0.1.1"
 description = "Memora - Your personal cross-device memory"
 authors = ["Memora"]
 edition = "2021"
@@ -12,6 +12,7 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 serde_json = "1"
+dotenvy = "0.15"
 
 [dependencies]
 tauri = { version = "2", features = ["tray-icon", "image-png", "macos-private-api"] }
