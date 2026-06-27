@@ -5,6 +5,7 @@ pub enum CapturedContent {
     Text(String),
     Url(String),
     Code(String),
+    #[allow(dead_code)]
     Image {
         path: String,
         size: i64,

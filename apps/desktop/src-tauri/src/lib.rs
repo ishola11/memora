@@ -1,3 +1,5 @@
+#![allow(unexpected_cfgs)]
+
 pub mod clipboard;
 pub mod commands;
 pub mod db;

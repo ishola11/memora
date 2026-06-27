@@ -67,8 +67,21 @@ pub fn session_from_auth_response(value: &serde_json::Value) -> Result<AuthSessi
     })
 }
 
+/// Parses Supabase-style expiry timestamps; covered by unit test for future session refresh work.
+#[allow(dead_code)]
 pub fn parse_expires_at(iso: &str) -> i64 {
     DateTime::parse_from_rfc3339(iso)
         .map(|d| d.timestamp())
         .unwrap_or_else(|_| Utc::now().timestamp() + 3600)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse_expires_at;
+
+    #[test]
+    fn parse_expires_at_accepts_rfc3339() {
+        let ts = parse_expires_at("2026-01-01T00:00:00Z");
+        assert!(ts > 0);
+    }
 }

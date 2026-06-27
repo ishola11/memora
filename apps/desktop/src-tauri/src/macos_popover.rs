@@ -1,3 +1,5 @@
+#![allow(deprecated)]
+
 //! macOS menubar popover configuration for tray + quick-paste overlays.
 //!
 //! Tried in Phase 3.1: `alwaysOnTop` + `visibleOnAllWorkspaces` + `NSMainMenuWindowLevel+1`
@@ -12,8 +14,6 @@
 //! Tauri webview windows are `NSWindow`, not `NSPanel` — do not call NSPanel-only selectors
 //! (`setFloatingPanel:`, `setWorksWhenModal:`, `setHidesOnDeactivate:`) or AppKit raises
 //! an exception that aborts the process (non-unwinding panic).
-
-#![allow(unexpected_cfgs, deprecated)]
 
 #[cfg(target_os = "macos")]
 use std::panic::{catch_unwind, AssertUnwindSafe};
