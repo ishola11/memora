@@ -27,6 +27,42 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Preflight release secrets
+        shell: bash
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+        run: |
+          set -euo pipefail
+          fail() { echo "::error title=Release preflight failed::$1"; exit 1; }
+
+          echo "=== Memora release preflight (${{ matrix.platform }}) ==="
+
+          if [[ -z "${TAURI_SIGNING_PRIVATE_KEY:-}" ]]; then
+            fail "TAURI_SIGNING_PRIVATE_KEY is empty. Paste the full contents of apps/desktop/src-tauri/keys/memora.key into GitHub repository secrets."
+          fi
+
+          key_bytes=$(printf '%s' "$TAURI_SIGNING_PRIVATE_KEY" | wc -c | tr -d ' ')
+          if [[ "$key_bytes" -lt 100 ]]; then
+            fail "TAURI_SIGNING_PRIVATE_KEY looks truncated (${key_bytes} bytes). Copy the entire memora.key file again."
+          fi
+
+          if [[ ! "$TAURI_SIGNING_PRIVATE_KEY" == *"untrusted comment:"* ]]; then
+            fail "TAURI_SIGNING_PRIVATE_KEY must include the first line (untrusted comment: ...)."
+          fi
+
+          [[ -n "${SUPABASE_URL:-}" ]] || fail "SUPABASE_URL is not set."
+          [[ -n "${SUPABASE_ANON_KEY:-}" ]] || fail "SUPABASE_ANON_KEY is not set."
+
+          if [[ ! "$SUPABASE_URL" == https://* ]]; then
+            fail "SUPABASE_URL must start with https://"
+          fi
+
+          echo "TAURI_SIGNING_PRIVATE_KEY size: ${key_bytes} bytes"
+          echo "SUPABASE_URL host: $(echo "$SUPABASE_URL" | sed -E 's|https://([^/]+).*|\1|')"
+          echo "Preflight passed — safe to build."
+
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -44,18 +80,10 @@ jobs:
       - name: Sync updater pubkey
         run: node scripts/sync-updater-pubkey.mjs
 
-      - name: Prepare updater signing key
-        shell: bash
-        run: |
-          mkdir -p apps/desktop/src-tauri/keys
-          printf '%s\n' "$TAURI_SIGNING_PRIVATE_KEY" > apps/desktop/src-tauri/keys/memora.key
-        env:
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-
       - uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAURI_SIGNING_PRIVATE_KEY_PATH: apps/desktop/src-tauri/keys/memora.key
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
         with:
