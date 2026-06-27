@@ -3,7 +3,16 @@ import { useEffect, useRef, useState } from "react";
 import { CollectionChips } from "@/components/ui/CollectionChips";
 import { PreviewCard } from "@/components/ui/PreviewCard";
 import { TabBar } from "@/components/ui/TabBar";
-import { copyItem, getSyncState, openSettings, toggleFavorite, togglePin } from "@/lib/api";
+import {
+  addItemToCollection,
+  copyItem,
+  deleteItem,
+  getSyncState,
+  openSettings,
+  removeItemFromCollection,
+  toggleFavorite,
+  togglePin,
+} from "@/lib/api";
 import type { SyncState } from "@memora/shared-types";
 import { TIMELINE_LABELS, cn } from "@/lib/utils";
 import { useAppStore } from "@/stores/app-store";
@@ -47,6 +56,26 @@ export function TrayPanel() {
   if (!trayOpen) return null;
 
   const showingSearch = query.trim().length > 0;
+
+  const cardActions = (cardId: string) => ({
+    onCopy: () => copyItem(cardId),
+    onCopyPlain: () => copyItem(cardId, true),
+    onPin: () => void togglePin(cardId).then(() => refresh()),
+    onFavorite: () => void toggleFavorite(cardId).then(() => refresh()),
+    onDelete: () => void deleteItem(cardId).then(() => refresh()),
+    collections,
+    onAddToCollection: (collectionId: string) =>
+      void addItemToCollection(cardId, collectionId).then(() => refresh()),
+    onRemoveFromCollection: (collectionId: string) =>
+      void removeItemFromCollection(cardId, collectionId).then(() => refresh()),
+  });
+
+  const collectionsEmptyMessage =
+    collections.length === 0
+      ? "Create a collection in Settings, then use the folder icon on any clip to add it."
+      : selectedCollectionId
+        ? "No items in this collection yet. Hover a clip and click the folder icon to add it."
+        : "Select a collection above, or add clips via the folder icon on any card.";
 
   return (
     <div className="panel-shell w-[400px] shadow-[var(--panel-shadow)]">
@@ -102,20 +131,13 @@ export function TrayPanel() {
           ) : (
             <div className="space-y-1">
               {results.map((card) => (
-                <PreviewCard
-                  key={card.id}
-                  card={card}
-                  compact
-                  onCopy={() => copyItem(card.id)}
-                  onPin={() => togglePin(card.id)}
-                  onFavorite={() => toggleFavorite(card.id)}
-                />
+                <PreviewCard key={card.id} card={card} compact {...cardActions(card.id)} />
               ))}
             </div>
           )
         ) : timeline.every((s) => s.items.length === 0) ? (
           <p className="px-3 py-12 text-center text-sm text-muted">
-            {activeTab === "collections" ? "No items in this collection" : "Nothing here yet"}
+            {activeTab === "collections" ? collectionsEmptyMessage : "Nothing here yet"}
           </p>
         ) : (
           timeline.map((section) =>
@@ -128,14 +150,7 @@ export function TrayPanel() {
                 )}
                 <div className="space-y-1">
                   {section.items.map((card) => (
-                    <PreviewCard
-                      key={card.id}
-                      card={card}
-                      compact
-                      onCopy={() => copyItem(card.id)}
-                      onPin={() => togglePin(card.id)}
-                      onFavorite={() => toggleFavorite(card.id)}
-                    />
+                    <PreviewCard key={card.id} card={card} compact {...cardActions(card.id)} />
                   ))}
                 </div>
               </div>

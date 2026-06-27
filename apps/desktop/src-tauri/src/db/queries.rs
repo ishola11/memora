@@ -38,7 +38,23 @@ impl Database {
 
     fn migrate(&self) -> Result<(), rusqlite::Error> {
         let sql = include_str!("migrations/001_initial.sql");
-        self.conn.lock().unwrap().execute_batch(sql)
+        self.conn.lock().unwrap().execute_batch(sql)?;
+        self.apply_schema_patches()?;
+        Ok(())
+    }
+
+    fn apply_schema_patches(&self) -> Result<(), rusqlite::Error> {
+        let conn = self.conn.lock().unwrap();
+        let patches = [
+            "ALTER TABLE collections ADD COLUMN sync_status TEXT NOT NULL DEFAULT 'synced'",
+            "ALTER TABLE collections ADD COLUMN deleted_at TEXT",
+            "ALTER TABLE collections ADD COLUMN updated_at TEXT",
+            "ALTER TABLE item_collections ADD COLUMN sync_status TEXT NOT NULL DEFAULT 'synced'",
+        ];
+        for patch in patches {
+            let _ = conn.execute(patch, []);
+        }
+        Ok(())
     }
 
     fn seed_defaults(&self) -> Result<(), rusqlite::Error> {
@@ -135,14 +151,14 @@ impl Database {
         thumbnail_path: Option<String>,
         content_hash: &str,
     ) -> Result<ItemRecord, rusqlite::Error> {
-        // Dedupe: same hash within 2 seconds on this device
+        // Dedupe: same hash within 5 minutes on any device
         let conn = self.conn.lock().unwrap();
         let recent: Option<String> = conn
             .query_row(
-                "SELECT id FROM items WHERE content_hash = ?1 AND source_device_id = ?2
-                 AND deleted_at IS NULL AND datetime(created_at) > datetime('now', '-2 seconds')
+                "SELECT id FROM items WHERE content_hash = ?1
+                 AND deleted_at IS NULL AND datetime(created_at) > datetime('now', '-5 minutes')
                  LIMIT 1",
-                params![content_hash, device_id],
+                params![content_hash],
                 |r| r.get(0),
             )
             .optional()?;
@@ -431,6 +447,28 @@ impl Database {
         Ok(count > 0)
     }
 
+    pub fn content_hash_synced_exists(&self, content_hash: &str) -> Result<bool, rusqlite::Error> {
+        let count: i64 = self.conn.lock().unwrap().query_row(
+            "SELECT COUNT(*) FROM items WHERE content_hash = ?1 AND deleted_at IS NULL AND sync_status = 'synced'",
+            params![content_hash],
+            |r| r.get(0),
+        )?;
+        Ok(count > 0)
+    }
+
+    pub fn recent_plain_text_exists(&self, text: &str, limit: i64) -> Result<bool, rusqlite::Error> {
+        let count: i64 = self.conn.lock().unwrap().query_row(
+            "SELECT COUNT(*) FROM (
+                SELECT plain_text FROM items
+                WHERE deleted_at IS NULL AND plain_text = ?1
+                ORDER BY created_at DESC LIMIT ?2
+             )",
+            params![text, limit],
+            |r| r.get(0),
+        )?;
+        Ok(count > 0)
+    }
+
     pub fn toggle_pin(&self, id: &str) -> Result<(), rusqlite::Error> {
         let now = Utc::now().to_rfc3339();
         let conn = self.conn.lock().unwrap();
@@ -600,7 +638,9 @@ impl Database {
         let mut stmt = conn.prepare(
             "SELECT c.id, c.name, c.color, c.icon,
                     (SELECT COUNT(*) FROM item_collections ic WHERE ic.collection_id = c.id) as cnt
-             FROM collections c ORDER BY c.sort_order, c.name",
+             FROM collections c
+             WHERE c.deleted_at IS NULL
+             ORDER BY c.sort_order, c.name",
         )?;
         let rows = stmt.query_map([], |row| {
             Ok(CollectionDto {
@@ -630,9 +670,10 @@ impl Database {
             )
             .unwrap_or(-1);
         conn.execute(
-            "INSERT INTO collections (id, name, color, sort_order, created_at) VALUES (?1, ?2, ?3, ?4, ?5)",
+            "INSERT INTO collections (id, name, color, sort_order, created_at, updated_at, sync_status) VALUES (?1, ?2, ?3, ?4, ?5, ?5, 'pending')",
             params![id, trimmed, color, max_order + 1, now],
         )?;
+        self.enqueue_sync(&conn, "create", "collection", &id)?;
         drop(conn);
         self.get_collection(&id)
     }
@@ -642,7 +683,7 @@ impl Database {
         conn.query_row(
             "SELECT c.id, c.name, c.color, c.icon,
                     (SELECT COUNT(*) FROM item_collections ic WHERE ic.collection_id = c.id) as cnt
-             FROM collections c WHERE c.id = ?1",
+             FROM collections c WHERE c.id = ?1 AND c.deleted_at IS NULL",
             params![id],
             |row| {
                 Ok(CollectionDto {
@@ -662,35 +703,90 @@ impl Database {
         name: Option<&str>,
         color: Option<&str>,
     ) -> Result<CollectionDto, rusqlite::Error> {
+        let now = Utc::now().to_rfc3339();
+        let conn = self.conn.lock().unwrap();
         if let Some(n) = name {
             if n.trim().is_empty() {
                 return Err(rusqlite::Error::InvalidParameterName("name".into()));
             }
-            self.conn.lock().unwrap().execute(
-                "UPDATE collections SET name = ?1 WHERE id = ?2",
-                params![n.trim(), id],
+            conn.execute(
+                "UPDATE collections SET name = ?1, updated_at = ?2, sync_status = 'pending' WHERE id = ?3 AND deleted_at IS NULL",
+                params![n.trim(), now, id],
             )?;
         }
         if let Some(c) = color {
-            self.conn.lock().unwrap().execute(
-                "UPDATE collections SET color = ?1 WHERE id = ?2",
-                params![c, id],
+            conn.execute(
+                "UPDATE collections SET color = ?1, updated_at = ?2, sync_status = 'pending' WHERE id = ?3 AND deleted_at IS NULL",
+                params![c, now, id],
             )?;
         }
+        self.enqueue_sync(&conn, "update", "collection", id)?;
+        drop(conn);
         self.get_collection(id)
     }
 
     pub fn delete_collection(&self, id: &str) -> Result<(), rusqlite::Error> {
+        let now = Utc::now().to_rfc3339();
         let conn = self.conn.lock().unwrap();
         conn.execute(
             "DELETE FROM item_collections WHERE collection_id = ?1",
             params![id],
         )?;
-        let changed = conn.execute("DELETE FROM collections WHERE id = ?1", params![id])?;
+        let changed = conn.execute(
+            "UPDATE collections SET deleted_at = ?1, updated_at = ?1, sync_status = 'pending' WHERE id = ?2 AND deleted_at IS NULL",
+            params![now, id],
+        )?;
         if changed == 0 {
             return Err(rusqlite::Error::QueryReturnedNoRows);
         }
+        self.enqueue_sync(&conn, "delete", "collection", id)?;
         Ok(())
+    }
+
+    pub fn add_item_to_collection(&self, item_id: &str, collection_id: &str) -> Result<(), rusqlite::Error> {
+        let conn = self.conn.lock().unwrap();
+        let exists: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM item_collections WHERE item_id = ?1 AND collection_id = ?2",
+            params![item_id, collection_id],
+            |r| r.get(0),
+        )?;
+        if exists > 0 {
+            return Ok(());
+        }
+        conn.execute(
+            "INSERT INTO item_collections (item_id, collection_id, sync_status) VALUES (?1, ?2, 'pending')",
+            params![item_id, collection_id],
+        )?;
+        let key = format!("{item_id}:{collection_id}");
+        self.enqueue_sync(&conn, "create", "item_collection", &key)?;
+        Ok(())
+    }
+
+    pub fn remove_item_from_collection(
+        &self,
+        item_id: &str,
+        collection_id: &str,
+    ) -> Result<(), rusqlite::Error> {
+        let conn = self.conn.lock().unwrap();
+        let changed = conn.execute(
+            "DELETE FROM item_collections WHERE item_id = ?1 AND collection_id = ?2",
+            params![item_id, collection_id],
+        )?;
+        if changed == 0 {
+            return Ok(());
+        }
+        let key = format!("{item_id}:{collection_id}");
+        self.enqueue_sync(&conn, "delete", "item_collection", &key)?;
+        Ok(())
+    }
+
+    pub fn get_item_collection_ids(&self, item_id: &str) -> Result<Vec<String>, rusqlite::Error> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT collection_id FROM item_collections WHERE item_id = ?1",
+        )?;
+        let rows = stmt.query_map(params![item_id], |row| row.get(0))?;
+        rows.collect()
     }
 
     pub fn get_devices(&self) -> Result<Vec<DeviceDto>, rusqlite::Error> {
@@ -720,7 +816,10 @@ impl Database {
 
     pub fn pending_sync_count(&self) -> Result<i64, rusqlite::Error> {
         self.conn.lock().unwrap().query_row(
-            "SELECT COUNT(*) FROM sync_queue WHERE status = 'pending'",
+            "SELECT
+                (SELECT COUNT(*) FROM items WHERE sync_status = 'pending') +
+                (SELECT COUNT(*) FROM collections WHERE sync_status = 'pending') +
+                (SELECT COUNT(*) FROM item_collections WHERE sync_status = 'pending')",
             [],
             |r| r.get(0),
         )
@@ -735,6 +834,38 @@ impl Database {
         conn.execute(
             "UPDATE sync_queue SET status = 'synced' WHERE entity_id = ?1 AND status = 'pending'",
             params![entity_id],
+        )?;
+        Ok(())
+    }
+
+    pub fn mark_collection_synced(&self, entity_id: &str) -> Result<(), rusqlite::Error> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "UPDATE collections SET sync_status = 'synced' WHERE id = ?1",
+            params![entity_id],
+        )?;
+        conn.execute(
+            "DELETE FROM collections WHERE id = ?1 AND deleted_at IS NOT NULL",
+            params![entity_id],
+        )?;
+        conn.execute(
+            "UPDATE sync_queue SET status = 'synced' WHERE entity_id = ?1 AND status = 'pending'",
+            params![entity_id],
+        )?;
+        Ok(())
+    }
+
+    pub fn mark_item_collection_synced(&self, item_id: &str, collection_id: &str) -> Result<(), rusqlite::Error> {
+        let conn = self.conn.lock().unwrap();
+        let key = format!("{item_id}:{collection_id}");
+        conn.execute(
+            "UPDATE item_collections SET sync_status = 'synced'
+             WHERE item_id = ?1 AND collection_id = ?2",
+            params![item_id, collection_id],
+        )?;
+        conn.execute(
+            "UPDATE sync_queue SET status = 'synced' WHERE entity_id = ?1 AND status = 'pending'",
+            params![key],
         )?;
         Ok(())
     }
@@ -789,6 +920,122 @@ impl Database {
             |r| r.get(0),
         )?;
         Ok(count > 0)
+    }
+
+    pub fn list_pending_sync_collections(&self) -> Result<Vec<CollectionRecord>, rusqlite::Error> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT id, name, color, icon, sort_order, sync_status, created_at, updated_at, deleted_at
+             FROM collections WHERE sync_status = 'pending' ORDER BY created_at ASC LIMIT 50",
+        )?;
+        let rows = stmt.query_map([], |row| {
+            Ok(CollectionRecord {
+                id: row.get(0)?,
+                name: row.get(1)?,
+                color: row.get(2)?,
+                icon: row.get(3)?,
+                sort_order: row.get(4)?,
+                sync_status: row.get(5)?,
+                created_at: row.get(6)?,
+                updated_at: row.get(7)?,
+                deleted_at: row.get(8)?,
+            })
+        })?;
+        rows.collect()
+    }
+
+    pub fn list_pending_sync_item_collections(&self) -> Result<Vec<ItemCollectionRecord>, rusqlite::Error> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT item_id, collection_id FROM item_collections WHERE sync_status = 'pending' LIMIT 50",
+        )?;
+        let rows = stmt.query_map([], |row| {
+            Ok(ItemCollectionRecord {
+                item_id: row.get(0)?,
+                collection_id: row.get(1)?,
+            })
+        })?;
+        rows.collect()
+    }
+
+    pub fn list_pending_item_collection_deletes(&self) -> Result<Vec<ItemCollectionRecord>, rusqlite::Error> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT entity_id FROM sync_queue
+             WHERE entity_type = 'item_collection' AND op = 'delete' AND status = 'pending'
+             LIMIT 50",
+        )?;
+        let rows = stmt
+            .query_map([], |row| {
+                let key: String = row.get(0)?;
+                let (item_id, collection_id) = key
+                    .split_once(':')
+                    .ok_or_else(|| rusqlite::Error::InvalidParameterName(key.clone()))?;
+                Ok(ItemCollectionRecord {
+                    item_id: item_id.to_string(),
+                    collection_id: collection_id.to_string(),
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(rows)
+    }
+
+    pub fn upsert_remote_collection(
+        &self,
+        collection: &crate::sync::client::CloudCollection,
+    ) -> Result<(), rusqlite::Error> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "INSERT INTO collections (id, name, color, icon, sort_order, created_at, updated_at, sync_status, deleted_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?6, 'synced', NULL)
+             ON CONFLICT(id) DO UPDATE SET
+                name = excluded.name,
+                color = excluded.color,
+                icon = excluded.icon,
+                sort_order = excluded.sort_order,
+                updated_at = excluded.updated_at,
+                sync_status = 'synced',
+                deleted_at = NULL",
+            params![
+                collection.id,
+                collection.name,
+                collection.color,
+                collection.icon,
+                collection.sort_order,
+                collection.created_at,
+            ],
+        )?;
+        Ok(())
+    }
+
+    pub fn delete_remote_collection(&self, id: &str) -> Result<(), rusqlite::Error> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute("DELETE FROM item_collections WHERE collection_id = ?1", params![id])?;
+        conn.execute("DELETE FROM collections WHERE id = ?1", params![id])?;
+        Ok(())
+    }
+
+    pub fn upsert_remote_item_collection(
+        &self,
+        link: &crate::sync::client::CloudItemCollection,
+    ) -> Result<(), rusqlite::Error> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "INSERT INTO item_collections (item_id, collection_id, sync_status)
+             VALUES (?1, ?2, 'synced')
+             ON CONFLICT(item_id, collection_id) DO UPDATE SET sync_status = 'synced'",
+            params![link.item_id, link.collection_id],
+        )?;
+        Ok(())
+    }
+
+    pub fn delete_remote_item_collection(&self, item_id: &str, collection_id: &str) -> Result<(), rusqlite::Error> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "DELETE FROM item_collections WHERE item_id = ?1 AND collection_id = ?2",
+            params![item_id, collection_id],
+        )?;
+        Ok(())
     }
 
     pub fn upsert_remote_item(&self, item: &crate::sync::client::CloudItem) -> Result<(), rusqlite::Error> {

@@ -5,7 +5,7 @@ use futures_util::{SinkExt, StreamExt};
 use tokio::time::{interval, Duration as TokioDuration};
 use tokio_tungstenite::{connect_async, tungstenite::Message};
 
-use super::client::CloudItem;
+use super::client::{CloudCollection, CloudItem, CloudItemCollection};
 use super::SyncEngine;
 
 pub async fn run_realtime_loop(engine: Arc<SyncEngine>) {
@@ -35,17 +35,29 @@ async fn run_session(engine: Arc<SyncEngine>) -> Result<(), Box<dyn std::error::
     let (mut write, mut read) = ws.split();
 
     let join = serde_json::json!({
-        "topic": "realtime:public:items",
+        "topic": "realtime:public:memora",
         "event": "phx_join",
         "payload": {
             "config": {
                 "broadcast": { "self": false },
                 "presence": { "key": "" },
-                "postgres_changes": [{
-                    "event": "*",
-                    "schema": "public",
-                    "table": "items"
-                }]
+                "postgres_changes": [
+                    {
+                        "event": "*",
+                        "schema": "public",
+                        "table": "items"
+                    },
+                    {
+                        "event": "*",
+                        "schema": "public",
+                        "table": "collections"
+                    },
+                    {
+                        "event": "*",
+                        "schema": "public",
+                        "table": "item_collections"
+                    }
+                ]
             },
             "access_token": session.access_token
         },
@@ -69,13 +81,36 @@ async fn run_session(engine: Arc<SyncEngine>) -> Result<(), Box<dyn std::error::
             msg = read.next() => {
                 match msg {
                     Some(Ok(Message::Text(text))) => {
-                                    if let Ok(value) = serde_json::from_str::<serde_json::Value>(&text) {
+                        if let Ok(value) = serde_json::from_str::<serde_json::Value>(&text) {
                             if value.get("event").and_then(|v| v.as_str()) == Some("postgres_changes") {
-                                if let Some(record) = value
-                                    .pointer("/payload/data/record")
-                                    .and_then(|r| serde_json::from_value::<CloudItem>(r.clone()).ok())
-                                {
-                                    let _ = engine.handle_remote_item(record).await;
+                                let event_type = value
+                                    .pointer("/payload/data/type")
+                                    .and_then(|v| v.as_str())
+                                    .unwrap_or("INSERT");
+                                let table = value
+                                    .pointer("/payload/data/table")
+                                    .and_then(|v| v.as_str())
+                                    .unwrap_or("items");
+
+                                if let Some(record) = value.pointer("/payload/data/record") {
+                                    match table {
+                                        "items" => {
+                                            if let Ok(item) = serde_json::from_value::<CloudItem>(record.clone()) {
+                                                let _ = engine.handle_remote_item(item).await;
+                                            }
+                                        }
+                                        "collections" => {
+                                            if let Ok(collection) = serde_json::from_value::<CloudCollection>(record.clone()) {
+                                                let _ = engine.handle_remote_collection(collection, event_type).await;
+                                            }
+                                        }
+                                        "item_collections" => {
+                                            if let Ok(link) = serde_json::from_value::<CloudItemCollection>(record.clone()) {
+                                                let _ = engine.handle_remote_item_collection(link, event_type).await;
+                                            }
+                                        }
+                                        _ => {}
+                                    }
                                 }
                             }
                         }

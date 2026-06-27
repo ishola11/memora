@@ -18,6 +18,7 @@
 - [x] **Step 16** — Device transfer toast ("Available on…")
 - [x] **Step 17** — Settings window (sign in, devices, sync status)
 - [x] **Step 17b** — History retention (30/60/90 days, keeps pins/favorites/collections)
+- [x] **Collections cloud sync** — push/pull collections + item_collections, realtime
 - [ ] **Step 15** — Snippets library UI + CRUD
 - [ ] **Step 18** — Signed installers + auto-update
 
@@ -32,26 +33,27 @@
 
 ## Phase 3: UI/UX Overhaul ✅
 
-- [x] **Collections CRUD** — `create_collection`, `update_collection`, `delete_collection` IPC + Settings UI (name, color presets, rename/delete)
-- [x] **Professional UI** — Underline TabBar, sticky header + scrollable content, design tokens (`surface`, `border`, `accent`), TrayPanel + QuickPasteLauncher polish
-- [x] **Tray popover behavior** — Position panel at tray click coords (`skipTaskbar`, `decorations: false`, `alwaysOnTop`); macOS below menubar, Windows above taskbar
-- [x] **Theme system** — System / Light / Dark persisted in SQLite (`theme_preference`), class-based Tailwind dark mode, `theme-changed` event
-- [x] **Settings sidebar** — Account & Sync, Devices, History, Collections, Appearance sections
+- [x] **Collections CRUD** — Settings UI + cloud sync
+- [x] **Assign to collections** — PreviewCard folder menu (tray + quick paste)
+- [x] **Professional UI** — TabBar, design tokens, action bar on PreviewCard
+- [x] **Tray popover** — Position at tray click rect (Retina-aware), no center-on-show
+- [x] **Quick Paste** — Centers on cursor monitor, not primary desktop
+- [x] **Theme system** — System / Light / Dark
+- [x] **Enhanced dedupe** — 5 min hash window, plain-text dedupe, longer suppress
 
 ## Next Up
 
-1. Create Supabase project + run migrations
-2. Copy `.env.example` → `apps/desktop/.env`
-3. Sign in via Settings on both devices
-4. Test Mac ↔ Windows sync
-5. Wire `item_collections` assign UI (add clips to collections from tray)
+1. Run `003_collections_realtime.sql` in Supabase if project predates this update
+2. Test Mac ↔ Windows collection sync
+3. Snippets library UI
+4. Signed installers + auto-update
 
 ## Supabase Setup
 
 1. Create project at [supabase.com](https://supabase.com)
-2. Run `services/migrations/001_cloud_schema.sql` in SQL editor
-3. Run `services/migrations/002_plain_text_realtime.sql`
-4. Enable Realtime: `ALTER PUBLICATION supabase_realtime ADD TABLE public.items;`
+2. Run `services/migrations/SETUP_ALL.sql` in SQL editor (new projects)
+3. Existing projects: also run `services/migrations/003_collections_realtime.sql`
+4. Run `services/migrations/002_plain_text_realtime.sql` if not already applied
 5. Create a test user (Authentication → Users → Add user)
 6. Copy project URL + anon key to `apps/desktop/.env`
 

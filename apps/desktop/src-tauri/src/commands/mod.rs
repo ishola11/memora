@@ -92,33 +92,81 @@ pub fn get_collections(state: State<'_, AppState>) -> Result<Vec<crate::db::Coll
 
 #[tauri::command]
 pub fn create_collection(
+    app: AppHandle,
     state: State<'_, AppState>,
     input: crate::db::CreateCollectionDto,
 ) -> Result<crate::db::CollectionDto, String> {
-    state
+    let collection = state
         .db
         .create_collection(&input.name, &input.color)
-        .map_err(|e| e.to_string())
+        .map_err(|e| e.to_string())?;
+    let _ = app.emit("collections-updated", ());
+    Ok(collection)
 }
 
 #[tauri::command]
 pub fn update_collection(
+    app: AppHandle,
     state: State<'_, AppState>,
     input: crate::db::UpdateCollectionDto,
 ) -> Result<crate::db::CollectionDto, String> {
-    state
+    let collection = state
         .db
         .update_collection(
             &input.id,
             input.name.as_deref(),
             input.color.as_deref(),
         )
-        .map_err(|e| e.to_string())
+        .map_err(|e| e.to_string())?;
+    let _ = app.emit("collections-updated", ());
+    Ok(collection)
 }
 
 #[tauri::command]
-pub fn delete_collection(state: State<'_, AppState>, id: String) -> Result<(), String> {
-    state.db.delete_collection(&id).map_err(|e| e.to_string())
+pub fn delete_collection(app: AppHandle, state: State<'_, AppState>, id: String) -> Result<(), String> {
+    state.db.delete_collection(&id).map_err(|e| e.to_string())?;
+    let _ = app.emit("collections-updated", ());
+    Ok(())
+}
+
+#[tauri::command]
+pub fn add_item_to_collection(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    item_id: String,
+    collection_id: String,
+) -> Result<(), String> {
+    state
+        .db
+        .add_item_to_collection(&item_id, &collection_id)
+        .map_err(|e| e.to_string())?;
+    let _ = app.emit("collections-updated", ());
+    let _ = app.emit("items-updated", ());
+    Ok(())
+}
+
+#[tauri::command]
+pub fn remove_item_from_collection(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    item_id: String,
+    collection_id: String,
+) -> Result<(), String> {
+    state
+        .db
+        .remove_item_from_collection(&item_id, &collection_id)
+        .map_err(|e| e.to_string())?;
+    let _ = app.emit("collections-updated", ());
+    let _ = app.emit("items-updated", ());
+    Ok(())
+}
+
+#[tauri::command]
+pub fn get_item_collections(state: State<'_, AppState>, item_id: String) -> Result<Vec<String>, String> {
+    state
+        .db
+        .get_item_collection_ids(&item_id)
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -162,7 +210,7 @@ pub fn get_item(
 #[tauri::command]
 pub fn show_quick_paste(app: AppHandle) -> Result<(), String> {
     if let Some(window) = app.get_webview_window("quick-paste") {
-        window.center().map_err(|e| e.to_string())?;
+        crate::position_quick_paste(&window);
         window.show().map_err(|e| e.to_string())?;
         window.set_focus().map_err(|e| e.to_string())?;
         app.emit("quick-paste-visibility", true)

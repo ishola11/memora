@@ -1,6 +1,6 @@
 use std::sync::atomic::Ordering;
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use arboard::Clipboard;
 use tauri::{AppHandle, Emitter, Manager};
@@ -9,7 +9,10 @@ use super::content::{classify, hash_content, CapturedContent};
 use crate::AppState;
 
 /// Watcher polls every 400ms; suppress enough iterations to cover programmatic writes.
-const SUPPRESS_ITERATIONS: u32 = 6;
+const SUPPRESS_ITERATIONS: u32 = 20;
+const DEDUPE_WINDOW: Duration = Duration::from_secs(300);
+const RAPID_CAPTURE_WINDOW: Duration = Duration::from_secs(30);
+const RECENT_PLAIN_TEXT_LIMIT: i64 = 8;
 
 pub fn start_watcher(app: AppHandle) {
     thread::spawn(move || {
@@ -52,11 +55,12 @@ pub fn start_watcher(app: AppHandle) {
                 if hash == last_hash {
                     continue;
                 }
-                if should_skip_capture(&state, &hash) {
+                if should_skip_capture(&state, &hash, Some(&text)) {
                     last_hash = hash;
                     continue;
                 }
                 last_hash = hash.clone();
+                record_capture(&state, &hash);
 
                 if let Err(e) = persist_capture(&state, content_type, captured, &hash) {
                     tracing::error!("persist capture: {e}");
@@ -68,18 +72,23 @@ pub fn start_watcher(app: AppHandle) {
                 if hash == last_hash {
                     continue;
                 }
-                if should_skip_capture(&state, &hash) {
+                if should_skip_capture(&state, &hash, None) {
                     last_hash = hash;
                     continue;
                 }
                 if let Err(e) = persist_image(&state, &app, &img, &mut last_hash) {
                     tracing::error!("persist image: {e}");
                 } else {
+                    record_capture(&state, &hash);
                     let _ = app.emit("items-updated", ());
                 }
             }
         }
     });
+}
+
+fn record_capture(state: &AppState, hash: &str) {
+    *state.last_capture.lock() = Some((hash.to_string(), Instant::now()));
 }
 
 fn persist_capture(
@@ -126,7 +135,6 @@ fn persist_image(
     let filename = format!("{}.png", uuid::Uuid::new_v4());
     let path = state.db.blobs_dir().join(&filename);
 
-    // Save raw RGBA as simple PNG via minimal encoding - for MVP store raw bytes
     let mut file = std::fs::File::create(&path)?;
     file.write_all(&image.bytes)?;
 
@@ -153,14 +161,15 @@ pub fn write_clipboard(state: &AppState, text: &str) -> Result<(), Box<dyn std::
     {
         let mut suppress = state.suppress_clipboard.lock();
         *suppress = SUPPRESS_ITERATIONS;
-        *state.last_programmatic_hash.lock() = Some(hash);
+        *state.last_programmatic_hash.lock() = Some(hash.clone());
+        *state.last_capture.lock() = Some((hash, Instant::now()));
     }
     let mut clipboard = Clipboard::new()?;
     clipboard.set_text(text.to_string())?;
     Ok(())
 }
 
-fn should_skip_capture(state: &AppState, hash: &str) -> bool {
+fn should_skip_capture(state: &AppState, hash: &str, plain_text: Option<&str>) -> bool {
     if state
         .last_programmatic_hash
         .lock()
@@ -169,10 +178,33 @@ fn should_skip_capture(state: &AppState, hash: &str) -> bool {
     {
         return true;
     }
-    state
-        .db
-        .content_hash_exists(hash)
-        .unwrap_or(false)
+
+    if let Some((last_hash, at)) = state.last_capture.lock().clone() {
+        if last_hash == hash && at.elapsed() < RAPID_CAPTURE_WINDOW {
+            return true;
+        }
+    }
+
+    if state.db.content_hash_exists(hash).unwrap_or(false) {
+        return true;
+    }
+
+    if state.db.content_hash_synced_exists(hash).unwrap_or(false) {
+        return true;
+    }
+
+    if let Some(text) = plain_text {
+        if state
+            .db
+            .recent_plain_text_exists(text, RECENT_PLAIN_TEXT_LIMIT)
+            .unwrap_or(false)
+        {
+            return true;
+        }
+    }
+
+    let _ = DEDUPE_WINDOW;
+    false
 }
 
 /// Skip terminal output, compiler warnings, and other non-user clipboard noise.

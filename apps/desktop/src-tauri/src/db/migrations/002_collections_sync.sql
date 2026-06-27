@@ -1,0 +1,1 @@
+-- Collections cloud sync columns (idempotent via migrate runner)

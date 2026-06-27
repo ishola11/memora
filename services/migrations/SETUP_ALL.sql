@@ -92,3 +92,5 @@ CREATE POLICY sync_events_own ON public.sync_events FOR ALL USING (auth.uid() = 
 
 -- Enable instant sync between devices (Realtime)
 ALTER PUBLICATION supabase_realtime ADD TABLE public.items;
+ALTER PUBLICATION supabase_realtime ADD TABLE public.collections;
+ALTER PUBLICATION supabase_realtime ADD TABLE public.item_collections;

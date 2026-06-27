@@ -7,12 +7,13 @@ pub mod timeline;
 
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
+use std::time::Instant;
 
 use parking_lot::Mutex;
 use tauri::{
     menu::{Menu, MenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
-    Emitter, Manager, PhysicalPosition, RunEvent, WindowEvent,
+    Emitter, Manager, Monitor, PhysicalPosition, Position, RunEvent, Size, WebviewWindow, WindowEvent,
 };
 use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut, ShortcutState};
 
@@ -20,6 +21,7 @@ pub struct AppState {
     pub db: Arc<db::Database>,
     pub suppress_clipboard: Arc<Mutex<u32>>,
     pub last_programmatic_hash: Arc<Mutex<Option<String>>>,
+    pub last_capture: Arc<Mutex<Option<(String, Instant)>>>,
     pub clipboard_paused: Arc<AtomicBool>,
     pub sync_engine: Arc<sync::SyncEngine>,
     pub device_name: String,
@@ -62,6 +64,7 @@ pub fn run() {
                 db: database.clone(),
                 suppress_clipboard: Arc::new(Mutex::new(0)),
                 last_programmatic_hash: Arc::new(Mutex::new(None)),
+                last_capture: Arc::new(Mutex::new(None)),
                 clipboard_paused: Arc::new(AtomicBool::new(clipboard_paused)),
                 sync_engine: sync_engine.clone(),
                 device_name,
@@ -136,6 +139,9 @@ pub fn run() {
             commands::create_collection,
             commands::update_collection,
             commands::delete_collection,
+            commands::add_item_to_collection,
+            commands::remove_item_from_collection,
+            commands::get_item_collections,
             commands::get_devices,
             commands::show_quick_paste,
             commands::hide_quick_paste,
@@ -181,7 +187,7 @@ pub fn run() {
 fn toggle_quick_paste(app: &tauri::AppHandle, show: bool) {
     if let Some(window) = app.get_webview_window("quick-paste") {
         if show {
-            let _ = window.center();
+            position_quick_paste(&window);
             let _ = window.show();
             let _ = window.set_focus();
             let _ = app.emit("quick-paste-visibility", true);
@@ -220,15 +226,17 @@ fn toggle_tray_window(
     }
 }
 
-/// Anchor the tray panel to the system tray / menubar area (popover style).
-fn position_tray_panel(window: &tauri::WebviewWindow, tray_rect: tauri::Rect) {
+/// Anchor the tray panel directly below the menubar / taskbar tray icon.
+fn position_tray_panel(window: &WebviewWindow, tray_rect: tauri::Rect) {
+    let scale = window.scale_factor().unwrap_or(1.0);
     let size = window
         .outer_size()
         .unwrap_or(tauri::PhysicalSize::new(400, 580));
-    let monitor = window
-        .current_monitor()
-        .ok()
-        .flatten()
+
+    let (tray_x, tray_y, tray_w, tray_h) = rect_physical_bounds(&tray_rect, scale);
+    let tray_center_x = tray_x + tray_w / 2;
+
+    let monitor = monitor_at_point(window, tray_center_x, tray_y + tray_h / 2)
         .or_else(|| window.primary_monitor().ok().flatten());
 
     let Some(monitor) = monitor else {
@@ -237,48 +245,83 @@ fn position_tray_panel(window: &tauri::WebviewWindow, tray_rect: tauri::Rect) {
 
     let mon_pos = monitor.position();
     let mon_size = monitor.size();
-    let gap = 6i32;
+    let gap = 4i32;
 
-    let (tray_x, tray_y, tray_w, tray_h) = rect_physical_bounds(&tray_rect);
+    let mut x = tray_center_x - (size.width as i32 / 2);
+    let min_x = mon_pos.x + 8;
+    let max_x = mon_pos.x + mon_size.width as i32 - size.width as i32 - 8;
+    x = x.clamp(min_x, max_x);
 
     #[cfg(target_os = "macos")]
-    let pos = {
-        let tray_center_x = tray_x + tray_w / 2;
-        let mut x = tray_center_x - (size.width as i32 / 2);
-        let y = tray_y + tray_h + gap;
-        let min_x = mon_pos.x + 8;
-        let max_x = mon_pos.x + mon_size.width as i32 - size.width as i32 - 8;
-        x = x.clamp(min_x, max_x);
-        PhysicalPosition::new(x, y)
-    };
+    let y = tray_y + tray_h + gap;
 
     #[cfg(not(target_os = "macos"))]
-    let pos = {
-        let tray_center_x = tray_x + tray_w / 2;
-        let mut x = tray_center_x - (size.width as i32 / 2);
-        let y = mon_pos.y + mon_size.height as i32 - size.height as i32 - 48;
-        let min_x = mon_pos.x + 8;
-        let max_x = mon_pos.x + mon_size.width as i32 - size.width as i32 - 8;
-        x = x.clamp(min_x, max_x);
-        PhysicalPosition::new(x, y)
+    let y = {
+        let below_tray = tray_y + tray_h + gap;
+        let above_taskbar = mon_pos.y + mon_size.height as i32 - size.height as i32 - 8;
+        if tray_y > mon_pos.y + mon_size.height as i32 / 2 {
+            above_taskbar
+        } else {
+            below_tray
+        }
     };
 
-    let _ = window.set_position(pos);
+    let _ = window.set_position(PhysicalPosition::new(x, y));
 }
 
-fn rect_physical_bounds(rect: &tauri::Rect) -> (i32, i32, i32, i32) {
+/// Center quick-paste on the monitor under the cursor (active screen), not the primary desktop.
+pub fn position_quick_paste(window: &WebviewWindow) {
+    let size = window
+        .outer_size()
+        .unwrap_or(tauri::PhysicalSize::new(680, 480));
+
+    let monitor = window
+        .cursor_position()
+        .ok()
+        .and_then(|cursor| monitor_at_point(window, cursor.x as i32, cursor.y as i32))
+        .or_else(|| window.current_monitor().ok().flatten())
+        .or_else(|| window.primary_monitor().ok().flatten());
+
+    let Some(monitor) = monitor else {
+        return;
+    };
+
+    let mon_pos = monitor.position();
+    let mon_size = monitor.size();
+    let x = mon_pos.x + (mon_size.width as i32 - size.width as i32) / 2;
+    let y = mon_pos.y + (mon_size.height as i32 - size.height as i32) / 4;
+
+    let _ = window.set_position(PhysicalPosition::new(x, y));
+}
+
+fn monitor_at_point(window: &WebviewWindow, x: i32, y: i32) -> Option<Monitor> {
+    window
+        .available_monitors()
+        .ok()?
+        .into_iter()
+        .find(|m| {
+            let pos = m.position();
+            let size = m.size();
+            x >= pos.x
+                && x < pos.x + size.width as i32
+                && y >= pos.y
+                && y < pos.y + size.height as i32
+        })
+}
+
+fn rect_physical_bounds(rect: &tauri::Rect, scale: f64) -> (i32, i32, i32, i32) {
     let (x, y) = match rect.position {
-        tauri::Position::Physical(p) => (p.x, p.y),
-        tauri::Position::Logical(p) => (p.x as i32, p.y as i32),
+        Position::Physical(p) => (p.x, p.y),
+        Position::Logical(p) => ((p.x * scale).round() as i32, (p.y * scale).round() as i32),
     };
     let (w, h) = match rect.size {
-        tauri::Size::Physical(s) => (s.width as i32, s.height as i32),
-        tauri::Size::Logical(s) => (s.width as i32, s.height as i32),
+        Size::Physical(s) => (s.width as i32, s.height as i32),
+        Size::Logical(s) => ((s.width * scale).round() as i32, (s.height * scale).round() as i32),
     };
     (x, y, w, h)
 }
 
-fn position_tray_panel_fallback(window: &tauri::WebviewWindow) {
+fn position_tray_panel_fallback(window: &WebviewWindow) {
     let size = window
         .outer_size()
         .unwrap_or(tauri::PhysicalSize::new(400, 580));

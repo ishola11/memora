@@ -41,6 +41,23 @@ pub struct CloudDevice {
     pub last_seen_at: Option<String>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CloudCollection {
+    pub id: String,
+    pub user_id: String,
+    pub name: String,
+    pub color: String,
+    pub icon: Option<String>,
+    pub sort_order: i64,
+    pub created_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CloudItemCollection {
+    pub item_id: String,
+    pub collection_id: String,
+}
+
 pub struct SupabaseClient {
     http: reqwest::Client,
     config: SyncConfig,
@@ -219,6 +236,147 @@ impl SupabaseClient {
         if !resp.status().is_success() {
             let text = resp.text().await.unwrap_or_default();
             return Err(format!("Fetch devices failed: {text}"));
+        }
+
+        resp.json().await.map_err(|e| e.to_string())
+    }
+
+    pub async fn upsert_collection(
+        &self,
+        session: &AuthSession,
+        collection: &crate::db::CollectionRecord,
+    ) -> Result<(), String> {
+        let cloud = CloudCollection {
+            id: collection.id.clone(),
+            user_id: session.user_id.clone(),
+            name: collection.name.clone(),
+            color: collection.color.clone(),
+            icon: collection.icon.clone(),
+            sort_order: collection.sort_order,
+            created_at: collection.created_at.clone(),
+        };
+        let url = format!("{}/collections", self.config.rest_url());
+        let resp = self
+            .http
+            .post(url)
+            .headers(auth_headers(&self.config, session))
+            .header("Prefer", "resolution=merge-duplicates")
+            .json(&cloud)
+            .send()
+            .await
+            .map_err(|e| e.to_string())?;
+
+        if !resp.status().is_success() {
+            let text = resp.text().await.unwrap_or_default();
+            return Err(format!("Push collection failed: {text}"));
+        }
+        Ok(())
+    }
+
+    pub async fn delete_collection(&self, session: &AuthSession, id: &str) -> Result<(), String> {
+        let url = format!("{}/collections?id=eq.{}", self.config.rest_url(), id);
+        let resp = self
+            .http
+            .delete(url)
+            .headers(auth_headers(&self.config, session))
+            .send()
+            .await
+            .map_err(|e| e.to_string())?;
+
+        if !resp.status().is_success() {
+            let text = resp.text().await.unwrap_or_default();
+            return Err(format!("Delete collection failed: {text}"));
+        }
+        Ok(())
+    }
+
+    pub async fn fetch_collections(
+        &self,
+        session: &AuthSession,
+    ) -> Result<Vec<CloudCollection>, String> {
+        let url = format!("{}/collections?order=sort_order.asc", self.config.rest_url());
+        let resp = self
+            .http
+            .get(url)
+            .headers(auth_headers(&self.config, session))
+            .send()
+            .await
+            .map_err(|e| e.to_string())?;
+
+        if !resp.status().is_success() {
+            let text = resp.text().await.unwrap_or_default();
+            return Err(format!("Fetch collections failed: {text}"));
+        }
+
+        resp.json().await.map_err(|e| e.to_string())
+    }
+
+    pub async fn upsert_item_collection(
+        &self,
+        session: &AuthSession,
+        link: &CloudItemCollection,
+    ) -> Result<(), String> {
+        let url = format!("{}/item_collections", self.config.rest_url());
+        let resp = self
+            .http
+            .post(url)
+            .headers(auth_headers(&self.config, session))
+            .header("Prefer", "resolution=merge-duplicates")
+            .json(link)
+            .send()
+            .await
+            .map_err(|e| e.to_string())?;
+
+        if !resp.status().is_success() {
+            let text = resp.text().await.unwrap_or_default();
+            return Err(format!("Push item_collection failed: {text}"));
+        }
+        Ok(())
+    }
+
+    pub async fn delete_item_collection(
+        &self,
+        session: &AuthSession,
+        item_id: &str,
+        collection_id: &str,
+    ) -> Result<(), String> {
+        let url = format!(
+            "{}/item_collections?item_id=eq.{}&collection_id=eq.{}",
+            self.config.rest_url(),
+            item_id,
+            collection_id
+        );
+        let resp = self
+            .http
+            .delete(url)
+            .headers(auth_headers(&self.config, session))
+            .send()
+            .await
+            .map_err(|e| e.to_string())?;
+
+        if !resp.status().is_success() {
+            let text = resp.text().await.unwrap_or_default();
+            return Err(format!("Delete item_collection failed: {text}"));
+        }
+        Ok(())
+    }
+
+    pub async fn fetch_item_collections(
+        &self,
+        session: &AuthSession,
+    ) -> Result<Vec<CloudItemCollection>, String> {
+        let url = format!("{}/item_collections", self.config.rest_url());
+        let resp = self
+            .http
+            .get(url)
+            .headers(auth_headers(&self.config, session))
+            .send()
+            .await
+            .map_err(|e| e.to_string())?;
+
+        if !resp.status().is_success() {
+            let text = resp.text().await.unwrap_or_default();
+            return Err(format!("Fetch item_collections failed: {text}"));
         }
 
         resp.json().await.map_err(|e| e.to_string())

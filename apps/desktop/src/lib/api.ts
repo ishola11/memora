@@ -75,6 +75,24 @@ export async function deleteCollection(id: string): Promise<void> {
   return invoke("delete_collection", { id });
 }
 
+export async function addItemToCollection(
+  itemId: string,
+  collectionId: string,
+): Promise<void> {
+  return invoke("add_item_to_collection", { itemId, collectionId });
+}
+
+export async function removeItemFromCollection(
+  itemId: string,
+  collectionId: string,
+): Promise<void> {
+  return invoke("remove_item_from_collection", { itemId, collectionId });
+}
+
+export async function getItemCollections(itemId: string): Promise<string[]> {
+  return invoke<string[]>("get_item_collections", { itemId });
+}
+
 export async function getDevices(): Promise<DeviceInfo[]> {
   return invoke<DeviceInfo[]>("get_devices");
 }
@@ -93,6 +111,10 @@ export async function getItem(id: string): Promise<ClipItem | null> {
 
 export function onItemsUpdated(callback: () => void) {
   return listen("items-updated", callback);
+}
+
+export function onCollectionsUpdated(callback: () => void) {
+  return listen("collections-updated", callback);
 }
 
 export function onQuickPasteVisibility(callback: (visible: boolean) => void) {

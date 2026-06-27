@@ -2,7 +2,14 @@ import { Search } from "lucide-react";
 import { useEffect, useRef } from "react";
 import { PreviewCard } from "@/components/ui/PreviewCard";
 import { APP_TABS, TabBar } from "@/components/ui/TabBar";
-import { copyItem, toggleFavorite, togglePin } from "@/lib/api";
+import {
+  addItemToCollection,
+  copyItem,
+  deleteItem,
+  removeItemFromCollection,
+  toggleFavorite,
+  togglePin,
+} from "@/lib/api";
 import { TIMELINE_LABELS } from "@/lib/utils";
 import { useAppStore } from "@/stores/app-store";
 import type { AppTab } from "@memora/shared-types";
@@ -21,6 +28,7 @@ export function QuickPasteLauncher() {
     setSelectedIndex,
     search,
     refresh,
+    collections,
     setQuickPasteOpen,
   } = useAppStore();
 
@@ -73,6 +81,25 @@ export function QuickPasteLauncher() {
 
   if (!quickPasteOpen) return null;
 
+  const cardActions = (cardId: string) => ({
+    onCopy: async () => {
+      await copyItem(cardId);
+      setQuickPasteOpen(false);
+    },
+    onCopyPlain: async () => {
+      await copyItem(cardId, true);
+      setQuickPasteOpen(false);
+    },
+    onPin: () => void togglePin(cardId).then(() => refresh()),
+    onFavorite: () => void toggleFavorite(cardId).then(() => refresh()),
+    onDelete: () => void deleteItem(cardId).then(() => refresh()),
+    collections,
+    onAddToCollection: (collectionId: string) =>
+      void addItemToCollection(cardId, collectionId).then(() => refresh()),
+    onRemoveFromCollection: (collectionId: string) =>
+      void removeItemFromCollection(cardId, collectionId).then(() => refresh()),
+  });
+
   return (
     <div
       className="fixed inset-0 z-50 flex items-start justify-center bg-black/30 pt-[10vh] backdrop-blur-[2px] dark:bg-black/50"
@@ -109,12 +136,7 @@ export function QuickPasteLauncher() {
                     card={card}
                     selected={index === selectedIndex}
                     onSelect={() => setSelectedIndex(index)}
-                    onCopy={async () => {
-                      await copyItem(card.id);
-                      setQuickPasteOpen(false);
-                    }}
-                    onPin={() => togglePin(card.id)}
-                    onFavorite={() => toggleFavorite(card.id)}
+                    {...cardActions(card.id)}
                   />
                 ))}
               </div>
@@ -140,12 +162,7 @@ export function QuickPasteLauncher() {
                           card={card}
                           selected={globalIndex === selectedIndex}
                           onSelect={() => setSelectedIndex(globalIndex)}
-                          onCopy={async () => {
-                            await copyItem(card.id);
-                            setQuickPasteOpen(false);
-                          }}
-                          onPin={() => togglePin(card.id)}
-                          onFavorite={() => toggleFavorite(card.id)}
+                          {...cardActions(card.id)}
                         />
                       );
                     })}

@@ -115,6 +115,27 @@ pub struct TabFiltersDto {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct CollectionRecord {
+    pub id: String,
+    pub name: String,
+    pub color: String,
+    pub icon: Option<String>,
+    pub sort_order: i64,
+    pub sync_status: String,
+    pub created_at: String,
+    pub updated_at: Option<String>,
+    pub deleted_at: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ItemCollectionRecord {
+    pub item_id: String,
+    pub collection_id: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct DeviceDto {
     pub id: String,
     pub name: String,

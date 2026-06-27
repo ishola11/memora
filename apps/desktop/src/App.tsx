@@ -4,6 +4,7 @@ import { SettingsPanel } from "@/components/settings/SettingsPanel";
 import { TrayPanel, TrayShell } from "@/components/tray/TrayPanel";
 import { SyncToast } from "@/components/ui/SyncToast";
 import {
+  onCollectionsUpdated,
   onItemsUpdated,
   onQuickPasteVisibility,
   onThemeChanged,
@@ -63,6 +64,10 @@ export default function App() {
     }).then((unlisten) => unsubs.push(unlisten));
 
     void onItemsUpdated(() => {
+      void refresh();
+    }).then((unlisten) => unsubs.push(unlisten));
+
+    void onCollectionsUpdated(() => {
       void refresh();
     }).then((unlisten) => unsubs.push(unlisten));
 
