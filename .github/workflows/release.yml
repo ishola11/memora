@@ -44,12 +44,18 @@ jobs:
       - name: Sync updater pubkey
         run: node scripts/sync-updater-pubkey.mjs
 
+      - name: Prepare updater signing key
+        shell: bash
+        run: |
+          mkdir -p apps/desktop/src-tauri/keys
+          printf '%s\n' "$TAURI_SIGNING_PRIVATE_KEY" > apps/desktop/src-tauri/keys/memora.key
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+
       - uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          # Current keypair was generated with password "" (two quote chars). Remove after regenerating with --ci.
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: '""'
+          TAURI_SIGNING_PRIVATE_KEY_PATH: apps/desktop/src-tauri/keys/memora.key
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
         with:

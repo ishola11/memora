@@ -1,6 +1,6 @@
 [package]
 name = "memora-desktop"
-version = "0.1.1"
+version = "0.1.2"
 description = "Memora - Your personal cross-device memory"
 authors = ["Memora"]
 edition = "2021"
