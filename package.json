@@ -1,0 +1,18 @@
+{
+  "name": "memora",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Your personal cross-device memory",
+  "scripts": {
+    "dev": "npm run dev --workspace=@memora/desktop",
+    "build": "npm run build --workspace=@memora/desktop",
+    "tauri": "npm run tauri --workspace=@memora/desktop"
+  },
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "engines": {
+    "node": ">=20"
+  }
+}

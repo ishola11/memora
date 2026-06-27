@@ -1,0 +1,29 @@
+# Dependencies
+node_modules/
+dist/
+target/
+
+# Tauri
+apps/desktop/src-tauri/target/
+
+# Local data
+*.db
+*.db-shm
+*.db-wal
+blobs/
+
+# Environment
+.env
+.env.local
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# Logs
+*.log
