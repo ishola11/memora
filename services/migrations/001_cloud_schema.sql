@@ -75,9 +75,30 @@ ALTER TABLE public.collections ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.item_collections ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.sync_events ENABLE ROW LEVEL SECURITY;
 
-CREATE POLICY devices_own ON public.devices FOR ALL USING (auth.uid() = user_id);
-CREATE POLICY items_own ON public.items FOR ALL USING (auth.uid() = user_id);
-CREATE POLICY collections_own ON public.collections FOR ALL USING (auth.uid() = user_id);
-CREATE POLICY item_collections_own ON public.item_collections FOR ALL
+CREATE POLICY devices_select_own ON public.devices FOR SELECT TO authenticated USING (auth.uid() = user_id);
+CREATE POLICY devices_insert_own ON public.devices FOR INSERT TO authenticated WITH CHECK (auth.uid() = user_id);
+CREATE POLICY devices_update_own ON public.devices FOR UPDATE TO authenticated USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
+CREATE POLICY devices_delete_own ON public.devices FOR DELETE TO authenticated USING (auth.uid() = user_id);
+
+CREATE POLICY items_select_own ON public.items FOR SELECT TO authenticated USING (auth.uid() = user_id);
+CREATE POLICY items_insert_own ON public.items FOR INSERT TO authenticated WITH CHECK (auth.uid() = user_id);
+CREATE POLICY items_update_own ON public.items FOR UPDATE TO authenticated USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
+CREATE POLICY items_delete_own ON public.items FOR DELETE TO authenticated USING (auth.uid() = user_id);
+
+CREATE POLICY collections_select_own ON public.collections FOR SELECT TO authenticated USING (auth.uid() = user_id);
+CREATE POLICY collections_insert_own ON public.collections FOR INSERT TO authenticated WITH CHECK (auth.uid() = user_id);
+CREATE POLICY collections_update_own ON public.collections FOR UPDATE TO authenticated USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
+CREATE POLICY collections_delete_own ON public.collections FOR DELETE TO authenticated USING (auth.uid() = user_id);
+
+CREATE POLICY item_collections_select_own ON public.item_collections FOR SELECT TO authenticated
   USING (EXISTS (SELECT 1 FROM public.items i WHERE i.id = item_id AND i.user_id = auth.uid()));
-CREATE POLICY sync_events_own ON public.sync_events FOR ALL USING (auth.uid() = user_id);
+CREATE POLICY item_collections_insert_own ON public.item_collections FOR INSERT TO authenticated
+  WITH CHECK (
+    EXISTS (SELECT 1 FROM public.items i WHERE i.id = item_id AND i.user_id = auth.uid())
+    AND EXISTS (SELECT 1 FROM public.collections c WHERE c.id = collection_id AND c.user_id = auth.uid())
+  );
+CREATE POLICY item_collections_delete_own ON public.item_collections FOR DELETE TO authenticated
+  USING (EXISTS (SELECT 1 FROM public.items i WHERE i.id = item_id AND i.user_id = auth.uid()));
+
+CREATE POLICY sync_events_select_own ON public.sync_events FOR SELECT TO authenticated USING (auth.uid() = user_id);
+CREATE POLICY sync_events_insert_own ON public.sync_events FOR INSERT TO authenticated WITH CHECK (auth.uid() = user_id);

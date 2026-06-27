@@ -178,30 +178,31 @@ impl SupabaseClient {
         name: &str,
         platform: &str,
     ) -> Result<(), String> {
-        let now = chrono::Utc::now().to_rfc3339();
-        let body = serde_json::json!({
-            "id": device_id,
-            "user_id": session.user_id,
-            "name": name,
-            "platform": platform,
-            "last_seen_at": now,
-        });
-        let url = format!("{}/devices", self.config.rest_url());
+        let url = format!("{}/rpc/register_device", self.config.rest_url());
         let resp = self
             .http
             .post(url)
             .headers(auth_headers(&self.config, session))
-            .header("Prefer", "resolution=merge-duplicates")
-            .json(&body)
+            .json(&serde_json::json!({
+                "device_id": device_id,
+                "device_name": name,
+                "device_platform": platform,
+            }))
             .send()
             .await
             .map_err(|e| e.to_string())?;
 
-        if !resp.status().is_success() {
-            let text = resp.text().await.unwrap_or_default();
-            return Err(format!("Register device failed: {text}"));
+        if resp.status().is_success() {
+            return Ok(());
         }
-        Ok(())
+
+        let text = resp.text().await.unwrap_or_default();
+        if text.contains("42883") || text.contains("does not exist") {
+            return Err(
+                "Device registration is not configured. Run services/migrations/006_devices_rpc_only.sql in Supabase SQL Editor, then update to Memora v0.1.6 or later.".into(),
+            );
+        }
+        Err(format!("Register device failed: {text}"))
     }
 
     pub async fn update_device_presence(
@@ -209,24 +210,19 @@ impl SupabaseClient {
         session: &AuthSession,
         device_id: &str,
     ) -> Result<(), String> {
-        let now = chrono::Utc::now().to_rfc3339();
-        let url = format!(
-            "{}/devices?id=eq.{}",
-            self.config.rest_url(),
-            device_id
-        );
+        let url = format!("{}/rpc/touch_device", self.config.rest_url());
         let resp = self
             .http
-            .patch(url)
+            .post(url)
             .headers(auth_headers(&self.config, session))
-            .json(&serde_json::json!({ "last_seen_at": now }))
+            .json(&serde_json::json!({ "device_id": device_id }))
             .send()
             .await
             .map_err(|e| e.to_string())?;
 
         if !resp.status().is_success() {
             let text = resp.text().await.unwrap_or_default();
-            tracing::debug!("presence update: {text}");
+            tracing::debug!("touch_device: {text}");
         }
         Ok(())
     }

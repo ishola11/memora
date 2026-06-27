@@ -38,10 +38,17 @@ export async function checkForUpdates(install = true): Promise<UpdateCheckResult
   } catch (err) {
     const message = String(err);
     if (
-      message.includes("not found") ||
+      message.includes("404") ||
       message.includes("Could not fetch") ||
-      message.includes("pubkey")
+      message.includes("Not Found")
     ) {
+      return {
+        status: "unavailable",
+        message:
+          "No published release found yet. Publish the GitHub release (draft releases are not checked).",
+      };
+    }
+    if (message.includes("not found") || message.includes("pubkey")) {
       return {
         status: "unavailable",
         message:

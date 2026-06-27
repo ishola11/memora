@@ -94,6 +94,6 @@ jobs:
             See the assets to download this version and install.
 
             The app will check this release for updates automatically.
-          releaseDraft: true
+          releaseDraft: false
           prerelease: false
           args: ${{ matrix.args }}
