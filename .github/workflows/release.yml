@@ -48,8 +48,8 @@ jobs:
             fail "TAURI_SIGNING_PRIVATE_KEY looks truncated (${key_bytes} bytes). Copy the entire memora.key file again."
           fi
 
-          if [[ ! "$TAURI_SIGNING_PRIVATE_KEY" == *"untrusted comment:"* ]]; then
-            fail "TAURI_SIGNING_PRIVATE_KEY must include the first line (untrusted comment: ...)."
+          if ! printf '%s' "$TAURI_SIGNING_PRIVATE_KEY" | base64 -d >/dev/null 2>&1; then
+            fail "TAURI_SIGNING_PRIVATE_KEY is not valid base64. Paste the single-line contents of memora.key exactly."
           fi
 
           [[ -n "${SUPABASE_URL:-}" ]] || fail "SUPABASE_URL is not set."
