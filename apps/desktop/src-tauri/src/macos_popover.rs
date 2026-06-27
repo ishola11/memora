@@ -37,8 +37,6 @@ pub fn configure_popover_window(window: &WebviewWindow) {
     const POPUP_MENU_WINDOW_LEVEL: i64 = 101;
     // NSWindowStyleMaskNonactivatingPanel — panel receives clicks without activating the app.
     const NONACTIVATING_PANEL: usize = 1 << 7;
-    // NSWindowCollectionBehaviorIgnoresCycle
-    const IGNORES_CYCLE: usize = 1 << 6;
 
     let Ok(ns_win) = window.ns_window() else {
         return;
@@ -47,12 +45,12 @@ pub fn configure_popover_window(window: &WebviewWindow) {
     unsafe {
         let ns_win = ns_win as id;
 
-        let existing: usize = msg_send![ns_win, collectionBehavior];
+        let existing: NSWindowCollectionBehavior = msg_send![ns_win, collectionBehavior];
         let behavior = existing
-            | NSWindowCollectionBehavior::NSWindowCollectionBehaviorCanJoinAllSpaces as usize
-            | NSWindowCollectionBehavior::NSWindowCollectionBehaviorStationary as usize
-            | NSWindowCollectionBehavior::NSWindowCollectionBehaviorFullScreenAuxiliary as usize
-            | IGNORES_CYCLE;
+            | NSWindowCollectionBehavior::NSWindowCollectionBehaviorCanJoinAllSpaces
+            | NSWindowCollectionBehavior::NSWindowCollectionBehaviorStationary
+            | NSWindowCollectionBehavior::NSWindowCollectionBehaviorFullScreenAuxiliary
+            | NSWindowCollectionBehavior::NSWindowCollectionBehaviorIgnoresCycle;
         let _: () = msg_send![ns_win, setCollectionBehavior: behavior];
 
         let _: () = msg_send![ns_win, setLevel: POPUP_MENU_WINDOW_LEVEL];
