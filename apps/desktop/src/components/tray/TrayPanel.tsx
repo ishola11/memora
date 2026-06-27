@@ -13,8 +13,9 @@ import {
   toggleFavorite,
   togglePin,
 } from "@/lib/api";
-import type { SyncState } from "@memora/shared-types";
+import type { PreviewCard as PreviewCardType, SyncState } from "@memora/shared-types";
 import { TIMELINE_LABELS, cn } from "@/lib/utils";
+import { useActionToastStore } from "@/stores/action-toast-store";
 import { useAppStore } from "@/stores/app-store";
 
 export function TrayPanel() {
@@ -37,6 +38,7 @@ export function TrayPanel() {
   } = useAppStore();
 
   const [syncState, setSyncState] = useState<SyncState | null>(null);
+  const showActionToast = useActionToastStore((s) => s.showActionToast);
 
   useEffect(() => {
     if (trayOpen) {
@@ -57,17 +59,43 @@ export function TrayPanel() {
 
   const showingSearch = query.trim().length > 0;
 
-  const cardActions = (cardId: string) => ({
-    onCopy: () => copyItem(cardId),
-    onCopyPlain: () => copyItem(cardId, true),
-    onPin: () => void togglePin(cardId).then(() => refresh()),
-    onFavorite: () => void toggleFavorite(cardId).then(() => refresh()),
-    onDelete: () => void deleteItem(cardId).then(() => refresh()),
+  const cardActions = (card: PreviewCardType) => ({
+    onCopy: async () => {
+      await copyItem(card.id);
+      showActionToast("Copied to clipboard");
+    },
+    onCopyPlain: async () => {
+      await copyItem(card.id, true);
+      showActionToast("Copied as plain text");
+    },
+    onPin: async () => {
+      await togglePin(card.id);
+      await refresh();
+      showActionToast(card.isPinned ? "Unpinned" : "Pinned");
+    },
+    onFavorite: async () => {
+      await toggleFavorite(card.id);
+      await refresh();
+      showActionToast(card.isFavorited ? "Removed from favorites" : "Added to favorites");
+    },
+    onDelete: async () => {
+      await deleteItem(card.id);
+      await refresh();
+      showActionToast("Deleted");
+    },
     collections,
-    onAddToCollection: (collectionId: string) =>
-      void addItemToCollection(cardId, collectionId).then(() => refresh()),
-    onRemoveFromCollection: (collectionId: string) =>
-      void removeItemFromCollection(cardId, collectionId).then(() => refresh()),
+    onAddToCollection: async (collectionId: string) => {
+      await addItemToCollection(card.id, collectionId);
+      await refresh();
+      const name = collections.find((c) => c.id === collectionId)?.name ?? "collection";
+      showActionToast(`Added to ${name}`);
+    },
+    onRemoveFromCollection: async (collectionId: string) => {
+      await removeItemFromCollection(card.id, collectionId);
+      await refresh();
+      const name = collections.find((c) => c.id === collectionId)?.name ?? "collection";
+      showActionToast(`Removed from ${name}`);
+    },
   });
 
   const collectionsEmptyMessage =
@@ -131,7 +159,7 @@ export function TrayPanel() {
           ) : (
             <div className="space-y-1">
               {results.map((card) => (
-                <PreviewCard key={card.id} card={card} compact {...cardActions(card.id)} />
+                <PreviewCard key={card.id} card={card} compact {...cardActions(card)} />
               ))}
             </div>
           )
@@ -150,7 +178,7 @@ export function TrayPanel() {
                 )}
                 <div className="space-y-1">
                   {section.items.map((card) => (
-                    <PreviewCard key={card.id} card={card} compact {...cardActions(card.id)} />
+                    <PreviewCard key={card.id} card={card} compact {...cardActions(card)} />
                   ))}
                 </div>
               </div>

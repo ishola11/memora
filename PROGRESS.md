@@ -47,6 +47,12 @@
 - [x] **Mac menubar overlay** — `visibleOnAllWorkspaces`, `acceptFirstMouse`, NSWindow level + collection behavior for tray + quick-paste
 - [x] **PreviewCard actions** — header row layout; icons top-right (no text overlay); collection dropdown below button
 
+## Phase 3.2: Mac menubar + action feedback (2026-06-27)
+
+- [x] **Mac menubar popover** — `ActivationPolicy::Accessory` + `LSUIElement`, `NSPopUpMenuWindowLevel`, non-activating panel style, `orderFrontRegardless`, OR'd `collectionBehavior` flags (`macos_popover.rs`)
+- [x] **Action toasts** — `ActionToast` bottom-left, 2s auto-dismiss; wired for copy/pin/favorite/collection/delete in Tray + Quick Paste
+- [x] **PreviewCard UX** — loading spinners per action, collection checkmark flash, menu closes after toggle
+
 ## Next Up
 
 1. Run `003_collections_realtime.sql` in Supabase if project predates this update

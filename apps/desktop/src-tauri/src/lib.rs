@@ -1,6 +1,7 @@
 pub mod clipboard;
 pub mod commands;
 pub mod db;
+pub mod macos_popover;
 pub mod search;
 pub mod sync;
 pub mod timeline;
@@ -44,6 +45,10 @@ pub fn run() {
                 .build(),
         )
         .setup(|app| {
+            // Accessory policy must be set early so menubar overlays join all Spaces (macOS).
+            #[cfg(target_os = "macos")]
+            macos_popover::init_menubar_app_policy(app.handle());
+
             let app_data = app.path().app_data_dir().expect("app data dir");
             std::fs::create_dir_all(&app_data).ok();
 
@@ -126,7 +131,7 @@ pub fn run() {
 
             for label in ["tray", "quick-paste"] {
                 if let Some(window) = app.get_webview_window(label) {
-                    configure_popover_window(&window);
+                    macos_popover::configure_popover_window(&window);
                 }
             }
 
@@ -193,10 +198,8 @@ pub fn run() {
 fn toggle_quick_paste(app: &tauri::AppHandle, show: bool) {
     if let Some(window) = app.get_webview_window("quick-paste") {
         if show {
-            configure_popover_window(&window);
             position_quick_paste(&window);
-            let _ = window.show();
-            let _ = window.set_focus();
+            macos_popover::show_popover_window(&window);
             let _ = app.emit("quick-paste-visibility", true);
         } else {
             let _ = window.hide();
@@ -218,14 +221,12 @@ fn toggle_tray_window(
             return;
         }
         if show {
-            configure_popover_window(&window);
             if let Some(rect) = tray_rect {
                 position_tray_panel(&window, rect);
             } else {
                 position_tray_panel_fallback(&window);
             }
-            let _ = window.show();
-            let _ = window.set_focus();
+            macos_popover::show_popover_window(&window);
             let _ = app.emit("tray-visibility", true);
         } else {
             let _ = window.hide();
@@ -360,31 +361,3 @@ fn position_tray_panel_fallback(window: &WebviewWindow) {
     let _ = window.set_position(pos);
 }
 
-/// Tray / Quick Paste overlays must float above fullscreen apps and follow the active Space.
-fn configure_popover_window(window: &WebviewWindow) {
-    let _ = window.set_always_on_top(true);
-    #[cfg(target_os = "macos")]
-    {
-        let _ = window.set_visible_on_all_workspaces(true);
-        configure_macos_popover_ns_window(window);
-    }
-}
-
-#[cfg(target_os = "macos")]
-fn configure_macos_popover_ns_window(window: &WebviewWindow) {
-    use cocoa::appkit::{NSMainMenuWindowLevel, NSWindow, NSWindowCollectionBehavior};
-    use cocoa::base::id;
-
-    let Ok(ns_win) = window.ns_window() else {
-        return;
-    };
-    unsafe {
-        let ns_win = ns_win as id;
-        ns_win.setLevel_((NSMainMenuWindowLevel + 1) as _);
-        ns_win.setCollectionBehavior_(
-            NSWindowCollectionBehavior::NSWindowCollectionBehaviorCanJoinAllSpaces
-                | NSWindowCollectionBehavior::NSWindowCollectionBehaviorStationary
-                | NSWindowCollectionBehavior::NSWindowCollectionBehaviorFullScreenAuxiliary,
-        );
-    }
-}

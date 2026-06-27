@@ -271,6 +271,9 @@ pub fn set_history_retention(
 
 #[tauri::command]
 pub fn open_settings(app: AppHandle) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    crate::macos_popover::activate_settings_policy(&app);
+
     if let Some(window) = app.get_webview_window("settings") {
         window.show().map_err(|e| e.to_string())?;
         window.set_focus().map_err(|e| e.to_string())?;

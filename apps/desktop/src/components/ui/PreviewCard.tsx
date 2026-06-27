@@ -7,6 +7,7 @@ import {
   FolderPlus,
   Globe,
   Image as ImageIcon,
+  Loader2,
   Pin,
   Star,
   Trash2,
@@ -26,19 +27,28 @@ const kindIcons = {
   snippet: Zap,
 };
 
+type BusyAction =
+  | "copy"
+  | "copyPlain"
+  | "pin"
+  | "favorite"
+  | "delete"
+  | `collection:${string}`
+  | null;
+
 interface PreviewCardProps {
   card: PreviewCardType;
   selected?: boolean;
   onSelect?: () => void;
-  onCopy?: () => void;
-  onCopyPlain?: () => void;
-  onPin?: () => void;
-  onFavorite?: () => void;
-  onDelete?: () => void;
+  onCopy?: () => void | Promise<void>;
+  onCopyPlain?: () => void | Promise<void>;
+  onPin?: () => void | Promise<void>;
+  onFavorite?: () => void | Promise<void>;
+  onDelete?: () => void | Promise<void>;
   collections?: Collection[];
   itemCollectionIds?: string[];
-  onAddToCollection?: (collectionId: string) => void;
-  onRemoveFromCollection?: (collectionId: string) => void;
+  onAddToCollection?: (collectionId: string) => void | Promise<void>;
+  onRemoveFromCollection?: (collectionId: string) => void | Promise<void>;
   compact?: boolean;
 }
 
@@ -48,33 +58,47 @@ function ActionButton({
   children,
   className,
   danger,
+  disabled,
+  busy,
 }: {
   label: string;
   onClick: () => void;
   children: React.ReactNode;
   className?: string;
   danger?: boolean;
+  disabled?: boolean;
+  busy?: boolean;
 }) {
   return (
     <button
       type="button"
       title={label}
       aria-label={label}
+      disabled={disabled || busy}
       onClick={(e) => {
         e.stopPropagation();
         onClick();
       }}
       className={cn(
-        "rounded-md p-1 text-muted transition-colors hover:bg-surface-elevated",
+        "rounded-md p-1 text-muted transition-colors hover:bg-surface-elevated disabled:cursor-not-allowed disabled:opacity-50",
         danger
           ? "hover:text-red-500"
           : "hover:text-zinc-700 dark:hover:text-zinc-200",
         className,
       )}
     >
-      {children}
+      {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : children}
     </button>
   );
+}
+
+async function runAction(action: () => void | Promise<void>, setBusy: (v: BusyAction) => void, key: BusyAction) {
+  setBusy(key);
+  try {
+    await action();
+  } finally {
+    setBusy(null);
+  }
 }
 
 export function PreviewCard({
@@ -94,10 +118,13 @@ export function PreviewCard({
 }: PreviewCardProps) {
   const Icon = kindIcons[card.kind as keyof typeof kindIcons] ?? Type;
   const [menuOpen, setMenuOpen] = useState(false);
+  const [busyAction, setBusyAction] = useState<BusyAction>(null);
   const [itemCollectionIds, setItemCollectionIds] = useState<string[]>(
     itemCollectionIdsProp ?? [],
   );
+  const [flashCollectionId, setFlashCollectionId] = useState<string | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
+  const flashTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
   useEffect(() => {
     if (itemCollectionIdsProp) {
@@ -121,23 +148,53 @@ export function PreviewCard({
     return () => document.removeEventListener("mousedown", close);
   }, [menuOpen]);
 
+  useEffect(() => {
+    return () => {
+      if (flashTimerRef.current) clearTimeout(flashTimerRef.current);
+    };
+  }, []);
+
   const showCollections = collections.length > 0 && (onAddToCollection || onRemoveFromCollection);
   const hasActions = Boolean(
     onCopy || onCopyPlain || onPin || onFavorite || onDelete || showCollections,
   );
+  const isBusy = busyAction !== null;
+
+  const handleCollectionToggle = async (collectionId: string, inCollection: boolean) => {
+    const actionKey: BusyAction = `collection:${collectionId}`;
+    setBusyAction(actionKey);
+    try {
+      if (inCollection) {
+        await onRemoveFromCollection?.(collectionId);
+        setItemCollectionIds((ids) => ids.filter((id) => id !== collectionId));
+      } else {
+        await onAddToCollection?.(collectionId);
+        setItemCollectionIds((ids) => [...ids, collectionId]);
+        setFlashCollectionId(collectionId);
+        if (flashTimerRef.current) clearTimeout(flashTimerRef.current);
+        flashTimerRef.current = setTimeout(() => setFlashCollectionId(null), 1200);
+      }
+      setMenuOpen(false);
+    } finally {
+      setBusyAction(null);
+    }
+  };
 
   return (
     <div
       role="option"
       aria-selected={selected}
       onClick={onSelect}
-      onDoubleClick={onCopy}
+      onDoubleClick={() => {
+        if (onCopy) void runAction(onCopy, setBusyAction, "copy");
+      }}
       className={cn(
         "group flex cursor-pointer gap-3 rounded-xl border px-3 py-2.5 transition-all",
         selected
           ? "border-accent/60 bg-accent/10 ring-1 ring-accent/30"
           : "border-border/60 bg-surface-elevated/80 hover:border-border hover:bg-surface-elevated",
         compact && "py-2",
+        isBusy && "opacity-90",
       )}
     >
       <div className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-border/50 bg-surface">
@@ -176,24 +233,41 @@ export function PreviewCard({
           {hasActions && (
             <div className="flex shrink-0 items-center gap-0.5 rounded-md border border-border/30 bg-surface/80 px-0.5 py-0.5">
               {onCopy && (
-                <ActionButton label="Copy" onClick={onCopy}>
+                <ActionButton
+                  label="Copy"
+                  disabled={isBusy}
+                  busy={busyAction === "copy"}
+                  onClick={() => void runAction(onCopy, setBusyAction, "copy")}
+                >
                   <Clipboard className="h-3.5 w-3.5" />
                 </ActionButton>
               )}
               {onCopyPlain && (
-                <ActionButton label="Copy as plain text" onClick={onCopyPlain}>
+                <ActionButton
+                  label="Copy as plain text"
+                  disabled={isBusy}
+                  busy={busyAction === "copyPlain"}
+                  onClick={() => void runAction(onCopyPlain, setBusyAction, "copyPlain")}
+                >
                   <ClipboardCopy className="h-3.5 w-3.5" />
                 </ActionButton>
               )}
               {onPin && (
-                <ActionButton label={card.isPinned ? "Unpin" : "Pin"} onClick={onPin}>
+                <ActionButton
+                  label={card.isPinned ? "Unpin" : "Pin"}
+                  disabled={isBusy}
+                  busy={busyAction === "pin"}
+                  onClick={() => void runAction(onPin, setBusyAction, "pin")}
+                >
                   <Pin className={cn("h-3.5 w-3.5", card.isPinned && "text-accent")} />
                 </ActionButton>
               )}
               {onFavorite && (
                 <ActionButton
                   label={card.isFavorited ? "Unfavorite" : "Favorite"}
-                  onClick={onFavorite}
+                  disabled={isBusy}
+                  busy={busyAction === "favorite"}
+                  onClick={() => void runAction(onFavorite, setBusyAction, "favorite")}
                 >
                   <Star
                     className={cn(
@@ -207,6 +281,8 @@ export function PreviewCard({
                 <div className="relative" ref={menuRef}>
                   <ActionButton
                     label="Add to collection"
+                    disabled={isBusy}
+                    busy={busyAction?.startsWith("collection:") ?? false}
                     onClick={() => setMenuOpen((v) => !v)}
                   >
                     <FolderPlus className="h-3.5 w-3.5" />
@@ -215,26 +291,32 @@ export function PreviewCard({
                     <div className="absolute right-0 top-[calc(100%+4px)] z-50 min-w-[168px] rounded-lg border border-border/60 bg-surface py-1 shadow-lg">
                       {collections.map((c) => {
                         const inCollection = itemCollectionIds.includes(c.id);
+                        const isFlashing = flashCollectionId === c.id;
+                        const rowBusy = busyAction === `collection:${c.id}`;
                         return (
                           <button
                             key={c.id}
                             type="button"
+                            disabled={isBusy}
                             onClick={(e) => {
                               e.stopPropagation();
-                              if (inCollection) {
-                                onRemoveFromCollection?.(c.id);
-                              } else {
-                                onAddToCollection?.(c.id);
-                              }
+                              void handleCollectionToggle(c.id, inCollection);
                             }}
-                            className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs hover:bg-surface-elevated"
+                            className={cn(
+                              "flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs hover:bg-surface-elevated disabled:opacity-50",
+                              isFlashing && "bg-accent/10",
+                            )}
                           >
                             <span
                               className="h-2 w-2 shrink-0 rounded-full"
                               style={{ backgroundColor: c.color }}
                             />
                             <span className="flex-1 truncate">{c.name}</span>
-                            {inCollection && <Check className="h-3 w-3 text-accent" />}
+                            {rowBusy ? (
+                              <Loader2 className="h-3 w-3 animate-spin text-muted" />
+                            ) : (inCollection || isFlashing) ? (
+                              <Check className="h-3 w-3 text-accent" />
+                            ) : null}
                           </button>
                         );
                       })}
@@ -243,7 +325,13 @@ export function PreviewCard({
                 </div>
               )}
               {onDelete && (
-                <ActionButton label="Delete" onClick={onDelete} danger>
+                <ActionButton
+                  label="Delete"
+                  danger
+                  disabled={isBusy}
+                  busy={busyAction === "delete"}
+                  onClick={() => void runAction(onDelete, setBusyAction, "delete")}
+                >
                   <Trash2 className="h-3.5 w-3.5" />
                 </ActionButton>
               )}

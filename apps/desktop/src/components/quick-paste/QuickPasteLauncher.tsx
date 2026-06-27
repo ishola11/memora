@@ -11,8 +11,9 @@ import {
   togglePin,
 } from "@/lib/api";
 import { TIMELINE_LABELS } from "@/lib/utils";
+import { useActionToastStore } from "@/stores/action-toast-store";
 import { useAppStore } from "@/stores/app-store";
-import type { AppTab } from "@memora/shared-types";
+import type { AppTab, PreviewCard as PreviewCardType } from "@memora/shared-types";
 
 export function QuickPasteLauncher() {
   const inputRef = useRef<HTMLInputElement>(null);
@@ -31,6 +32,7 @@ export function QuickPasteLauncher() {
     collections,
     setQuickPasteOpen,
   } = useAppStore();
+  const showActionToast = useActionToastStore((s) => s.showActionToast);
 
   useEffect(() => {
     if (quickPasteOpen) {
@@ -81,23 +83,45 @@ export function QuickPasteLauncher() {
 
   if (!quickPasteOpen) return null;
 
-  const cardActions = (cardId: string) => ({
+  const cardActions = (card: PreviewCardType) => ({
     onCopy: async () => {
-      await copyItem(cardId);
+      await copyItem(card.id);
+      showActionToast("Copied to clipboard");
       setQuickPasteOpen(false);
     },
     onCopyPlain: async () => {
-      await copyItem(cardId, true);
+      await copyItem(card.id, true);
+      showActionToast("Copied as plain text");
       setQuickPasteOpen(false);
     },
-    onPin: () => void togglePin(cardId).then(() => refresh()),
-    onFavorite: () => void toggleFavorite(cardId).then(() => refresh()),
-    onDelete: () => void deleteItem(cardId).then(() => refresh()),
+    onPin: async () => {
+      await togglePin(card.id);
+      await refresh();
+      showActionToast(card.isPinned ? "Unpinned" : "Pinned");
+    },
+    onFavorite: async () => {
+      await toggleFavorite(card.id);
+      await refresh();
+      showActionToast(card.isFavorited ? "Removed from favorites" : "Added to favorites");
+    },
+    onDelete: async () => {
+      await deleteItem(card.id);
+      await refresh();
+      showActionToast("Deleted");
+    },
     collections,
-    onAddToCollection: (collectionId: string) =>
-      void addItemToCollection(cardId, collectionId).then(() => refresh()),
-    onRemoveFromCollection: (collectionId: string) =>
-      void removeItemFromCollection(cardId, collectionId).then(() => refresh()),
+    onAddToCollection: async (collectionId: string) => {
+      await addItemToCollection(card.id, collectionId);
+      await refresh();
+      const name = collections.find((c) => c.id === collectionId)?.name ?? "collection";
+      showActionToast(`Added to ${name}`);
+    },
+    onRemoveFromCollection: async (collectionId: string) => {
+      await removeItemFromCollection(card.id, collectionId);
+      await refresh();
+      const name = collections.find((c) => c.id === collectionId)?.name ?? "collection";
+      showActionToast(`Removed from ${name}`);
+    },
   });
 
   return (
@@ -136,7 +160,7 @@ export function QuickPasteLauncher() {
                     card={card}
                     selected={index === selectedIndex}
                     onSelect={() => setSelectedIndex(index)}
-                    {...cardActions(card.id)}
+                    {...cardActions(card)}
                   />
                 ))}
               </div>
@@ -162,7 +186,7 @@ export function QuickPasteLauncher() {
                           card={card}
                           selected={globalIndex === selectedIndex}
                           onSelect={() => setSelectedIndex(globalIndex)}
-                          {...cardActions(card.id)}
+                          {...cardActions(card)}
                         />
                       );
                     })}

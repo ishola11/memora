@@ -2,6 +2,7 @@ import { useEffect, useRef } from "react";
 import { QuickPasteLauncher } from "@/components/quick-paste/QuickPasteLauncher";
 import { SettingsPanel } from "@/components/settings/SettingsPanel";
 import { TrayPanel, TrayShell } from "@/components/tray/TrayPanel";
+import { ActionToast } from "@/components/ui/ActionToast";
 import { SyncToast } from "@/components/ui/SyncToast";
 import {
   onCollectionsUpdated,
@@ -88,6 +89,7 @@ export default function App() {
     return (
       <TrayShell>
         <TrayPanel />
+        <ActionToast />
         <SyncToast />
       </TrayShell>
     );
@@ -97,6 +99,7 @@ export default function App() {
     return (
       <TrayShell>
         <QuickPasteLauncher />
+        <ActionToast />
         <SyncToast />
       </TrayShell>
     );
@@ -106,6 +109,7 @@ export default function App() {
     <TrayShell>
       <QuickPasteLauncher />
       <TrayPanel />
+      <ActionToast />
       <SyncToast />
     </TrayShell>
   );
