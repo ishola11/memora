@@ -60,6 +60,7 @@ function ActionButton({
   danger,
   disabled,
   busy,
+  toolbar,
 }: {
   label: string;
   onClick: () => void;
@@ -68,6 +69,7 @@ function ActionButton({
   danger?: boolean;
   disabled?: boolean;
   busy?: boolean;
+  toolbar?: boolean;
 }) {
   return (
     <button
@@ -80,14 +82,17 @@ function ActionButton({
         onClick();
       }}
       className={cn(
-        "rounded p-0.5 text-muted transition-colors hover:bg-surface-elevated disabled:cursor-not-allowed disabled:opacity-50",
+        "text-muted transition-colors hover:bg-surface-elevated disabled:cursor-not-allowed disabled:opacity-50",
+        toolbar
+          ? "flex min-w-0 flex-1 items-center justify-center py-2"
+          : "rounded p-0.5",
         danger
           ? "hover:text-red-500"
           : "hover:text-zinc-700 dark:hover:text-zinc-200",
         className,
       )}
     >
-      {busy ? <Loader2 className="h-3 w-3 animate-spin" /> : children}
+      {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : children}
     </button>
   );
 }
@@ -233,115 +238,124 @@ export function PreviewCard({
       {hasActions && (
         <div
           className={cn(
-            "mt-2 flex items-center gap-0.5 border-t border-border/40 pt-1.5 transition-opacity duration-150",
+            "mt-2.5 w-full transition-opacity duration-150",
             compact
               ? "opacity-0 group-hover:opacity-100 group-focus-within:opacity-100"
-              : "opacity-50 group-hover:opacity-100",
+              : "opacity-70 group-hover:opacity-100",
           )}
         >
-          {onCopy && (
-            <ActionButton
-              label="Copy"
-              disabled={isBusy}
-              busy={busyAction === "copy"}
-              onClick={() => void runAction(onCopy, setBusyAction, "copy")}
-            >
-              <Clipboard className="h-3 w-3" />
-            </ActionButton>
-          )}
-          {onCopyPlain && (
-            <ActionButton
-              label="Copy as plain text"
-              disabled={isBusy}
-              busy={busyAction === "copyPlain"}
-              onClick={() => void runAction(onCopyPlain, setBusyAction, "copyPlain")}
-            >
-              <ClipboardCopy className="h-3 w-3" />
-            </ActionButton>
-          )}
-          {onPin && (
-            <ActionButton
-              label={card.isPinned ? "Unpin" : "Pin"}
-              disabled={isBusy}
-              busy={busyAction === "pin"}
-              onClick={() => void runAction(onPin, setBusyAction, "pin")}
-            >
-              <Pin className={cn("h-3 w-3", card.isPinned && "text-accent")} />
-            </ActionButton>
-          )}
-          {onFavorite && (
-            <ActionButton
-              label={card.isFavorited ? "Unfavorite" : "Favorite"}
-              disabled={isBusy}
-              busy={busyAction === "favorite"}
-              onClick={() => void runAction(onFavorite, setBusyAction, "favorite")}
-            >
-              <Star
-                className={cn(
-                  "h-3 w-3",
-                  card.isFavorited && "fill-amber-400 text-amber-400",
-                )}
-              />
-            </ActionButton>
-          )}
-          {showCollections && (
-            <div className="relative" ref={menuRef}>
+          <div className="flex w-full divide-x divide-border/40 overflow-hidden rounded-lg border border-border/40 bg-surface/70">
+            {onCopy && (
               <ActionButton
-                label="Add to collection"
+                toolbar
+                label="Copy"
                 disabled={isBusy}
-                busy={busyAction?.startsWith("collection:") ?? false}
-                onClick={() => setMenuOpen((v) => !v)}
+                busy={busyAction === "copy"}
+                onClick={() => void runAction(onCopy, setBusyAction, "copy")}
               >
-                <FolderPlus className="h-3 w-3" />
+                <Clipboard className="h-3.5 w-3.5" />
               </ActionButton>
-              {menuOpen && (
-                <div className="absolute bottom-[calc(100%+4px)] left-0 z-50 min-w-[168px] rounded-lg border border-border/60 bg-surface py-1 shadow-lg">
-                  {collections.map((c) => {
-                    const inCollection = itemCollectionIds.includes(c.id);
-                    const isFlashing = flashCollectionId === c.id;
-                    const rowBusy = busyAction === `collection:${c.id}`;
-                    return (
-                      <button
-                        key={c.id}
-                        type="button"
-                        disabled={isBusy}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          void handleCollectionToggle(c.id, inCollection);
-                        }}
-                        className={cn(
-                          "flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs hover:bg-surface-elevated disabled:opacity-50",
-                          isFlashing && "bg-accent/10",
-                        )}
-                      >
-                        <span
-                          className="h-2 w-2 shrink-0 rounded-full"
-                          style={{ backgroundColor: c.color }}
-                        />
-                        <span className="flex-1 truncate">{c.name}</span>
-                        {rowBusy ? (
-                          <Loader2 className="h-3 w-3 animate-spin text-muted" />
-                        ) : (inCollection || isFlashing) ? (
-                          <Check className="h-3 w-3 text-accent" />
-                        ) : null}
-                      </button>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-          )}
-          {onDelete && (
-            <ActionButton
-              label="Delete"
-              danger
-              disabled={isBusy}
-              busy={busyAction === "delete"}
-              onClick={() => void runAction(onDelete, setBusyAction, "delete")}
-            >
-              <Trash2 className="h-3 w-3" />
-            </ActionButton>
-          )}
+            )}
+            {onCopyPlain && (
+              <ActionButton
+                toolbar
+                label="Copy as plain text"
+                disabled={isBusy}
+                busy={busyAction === "copyPlain"}
+                onClick={() => void runAction(onCopyPlain, setBusyAction, "copyPlain")}
+              >
+                <ClipboardCopy className="h-3.5 w-3.5" />
+              </ActionButton>
+            )}
+            {onPin && (
+              <ActionButton
+                toolbar
+                label={card.isPinned ? "Unpin" : "Pin"}
+                disabled={isBusy}
+                busy={busyAction === "pin"}
+                onClick={() => void runAction(onPin, setBusyAction, "pin")}
+              >
+                <Pin className={cn("h-3.5 w-3.5", card.isPinned && "text-accent")} />
+              </ActionButton>
+            )}
+            {onFavorite && (
+              <ActionButton
+                toolbar
+                label={card.isFavorited ? "Unfavorite" : "Favorite"}
+                disabled={isBusy}
+                busy={busyAction === "favorite"}
+                onClick={() => void runAction(onFavorite, setBusyAction, "favorite")}
+              >
+                <Star
+                  className={cn(
+                    "h-3.5 w-3.5",
+                    card.isFavorited && "fill-amber-400 text-amber-400",
+                  )}
+                />
+              </ActionButton>
+            )}
+            {showCollections && (
+              <div className="relative min-w-0 flex-1" ref={menuRef}>
+                <ActionButton
+                  toolbar
+                  label="Add to collection"
+                  disabled={isBusy}
+                  busy={busyAction?.startsWith("collection:") ?? false}
+                  onClick={() => setMenuOpen((v) => !v)}
+                  className="w-full"
+                >
+                  <FolderPlus className="h-3.5 w-3.5" />
+                </ActionButton>
+                {menuOpen && (
+                  <div className="absolute bottom-[calc(100%+4px)] left-1/2 z-50 min-w-[168px] -translate-x-1/2 rounded-lg border border-border/60 bg-surface py-1 shadow-lg">
+                    {collections.map((c) => {
+                      const inCollection = itemCollectionIds.includes(c.id);
+                      const isFlashing = flashCollectionId === c.id;
+                      const rowBusy = busyAction === `collection:${c.id}`;
+                      return (
+                        <button
+                          key={c.id}
+                          type="button"
+                          disabled={isBusy}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            void handleCollectionToggle(c.id, inCollection);
+                          }}
+                          className={cn(
+                            "flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs hover:bg-surface-elevated disabled:opacity-50",
+                            isFlashing && "bg-accent/10",
+                          )}
+                        >
+                          <span
+                            className="h-2 w-2 shrink-0 rounded-full"
+                            style={{ backgroundColor: c.color }}
+                          />
+                          <span className="flex-1 truncate">{c.name}</span>
+                          {rowBusy ? (
+                            <Loader2 className="h-3 w-3 animate-spin text-muted" />
+                          ) : (inCollection || isFlashing) ? (
+                            <Check className="h-3 w-3 text-accent" />
+                          ) : null}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            )}
+            {onDelete && (
+              <ActionButton
+                toolbar
+                label="Delete"
+                danger
+                disabled={isBusy}
+                busy={busyAction === "delete"}
+                onClick={() => void runAction(onDelete, setBusyAction, "delete")}
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+              </ActionButton>
+            )}
+          </div>
         </div>
       )}
     </div>
